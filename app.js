@@ -1111,9 +1111,60 @@ function buildLiveTrajectory(lat, lon, heading) {
   ];
 }
 
+function mapVatsimToEntity(p) {
+  if (p.latitude == null || p.longitude == null) return null;
+  const alt = typeof p.altitude === 'number' ? p.altitude : 0;
+  const speed = typeof p.groundspeed === 'number' ? p.groundspeed : 0;
+  if (alt < 300 && speed < 30) return null; // Filter out stationary ground craft
+
+  const callsign = (p.callsign || '').trim();
+  if (!callsign) return null;
+
+  const heading = typeof p.heading === 'number' ? p.heading : 0;
+  const squawk = p.transponder || '----';
+  const fp = p.flight_plan || {};
+  const acType = fp.aircraft_short || fp.aircraft || 'Civil Aircraft';
+  const dep = fp.departure || 'ORIG';
+  const arr = fp.arrival || 'DEST';
+
+  const acMeta = {
+    flight: callsign,
+    hex: String(p.cid),
+    squawk,
+    alt_baro: alt,
+    gs: speed,
+    track: heading
+  };
+
+  const isCuriosity = detectLiveCuriosity(acMeta);
+  const trajectory = buildLiveTrajectory(p.latitude, p.longitude, heading);
+
+  return {
+    id: `vatsim-${p.cid}`,
+    type: 'aircraft',
+    callsign,
+    airline: deriveAirline(callsign),
+    aircraftType: acType,
+    registration: p.name || 'VATSIM Network',
+    squawk,
+    lat: p.latitude,
+    lng: p.longitude,
+    altitude: alt,
+    speed,
+    heading,
+    verticalRate: 0,
+    progress: 0.5,
+    timestamp: p.last_updated || new Date().toISOString(),
+    isCuriosity,
+    curiosityNote: isCuriosity ? getLiveCuriosityNote(acMeta) : null,
+    trajectory,
+    altitudeHistory: Array(10).fill(alt),
+    origin: { code: dep, name: dep, lat: trajectory[0][0], lng: trajectory[0][1] },
+    destination: { code: arr, name: arr, lat: trajectory[2][0], lng: trajectory[2][1] }
+  };
+}
+
 function mapOpenSkyToEntity(vec) {
-  // OpenSky state vector format:
-  // [icao24(0), callsign(1), country(2), timePos(3), lastContact(4), lon(5), lat(6), baroAlt(7), onGround(8), velocity(9), trueTrack(10), vertRate(11), sensors(12), geoAlt(13), squawk(14), spi(15), positionSource(16)]
   const icao24  = vec[0];
   const rawCs   = vec[1];
   const country = vec[2] || '';
@@ -1134,8 +1185,8 @@ function mapOpenSkyToEntity(vec) {
   if (!callsign) return null;
 
   const altMeters = baroAlt != null ? baroAlt : (geoAlt != null ? geoAlt : 10000);
-  const altitude = Math.max(0, Math.round(altMeters * 3.28084)); // m to ft
-  const speed = velocity != null ? Math.round(velocity * 1.94384) : 450; // m/s to knots
+  const altitude = Math.max(0, Math.round(altMeters * 3.28084));
+  const speed = velocity != null ? Math.round(velocity * 1.94384) : 450;
   const heading = track != null ? Math.round(track) : 0;
   const squawkStr = squawk || '----';
 
@@ -1164,7 +1215,7 @@ function mapOpenSkyToEntity(vec) {
     altitude,
     speed,
     heading,
-    verticalRate: vertRate != null ? Math.round(vertRate * 196.85) : 0, // m/s to ft/min
+    verticalRate: vertRate != null ? Math.round(vertRate * 196.85) : 0,
     progress: 0.5,
     timestamp: timePos ? new Date(timePos * 1000).toISOString() : new Date().toISOString(),
     isCuriosity,
@@ -1173,37 +1224,6 @@ function mapOpenSkyToEntity(vec) {
     altitudeHistory: Array(10).fill(altitude),
     origin: { code: country ? country.slice(0, 3).toUpperCase() : 'ORIG', name: country || 'Origin Country', lat: trajectory[0][0], lng: trajectory[0][1] },
     destination: { code: 'DEST', name: 'En Route', lat: trajectory[2][0], lng: trajectory[2][1] }
-  };
-}
-
-function mapAdsbToEntity(ac) {
-  if (!ac.lat || !ac.lon) return null;
-  const callsign = (ac.flight || ac.hex || '').trim();
-  if (!callsign) return null;
-  const alt      = typeof ac.alt_baro  === 'number' ? ac.alt_baro
-                 : typeof ac.alt_geom  === 'number' ? ac.alt_geom : 35000;
-  const speed    = typeof ac.gs        === 'number' ? Math.round(ac.gs)    : 450;
-  const heading  = typeof ac.track     === 'number' ? Math.round(ac.track) : 0;
-  const isCuriosity = detectLiveCuriosity(ac);
-  const trajectory  = buildLiveTrajectory(ac.lat, ac.lon, heading);
-  return {
-    id: ac.hex, type: 'aircraft', callsign,
-    airline: deriveAirline(callsign),
-    aircraftType: ac.t || 'Unknown',
-    registration: ac.r || '',
-    squawk: ac.squawk || '----',
-    lat: ac.lat, lng: ac.lon,
-    altitude: Math.max(0, Math.round(alt)),
-    speed, heading,
-    verticalRate: ac.baro_rate || 0,
-    progress: 0.5,
-    timestamp: new Date().toISOString(),
-    isCuriosity,
-    curiosityNote: isCuriosity ? getLiveCuriosityNote(ac) : null,
-    trajectory,
-    altitudeHistory: Array(10).fill(Math.max(0, Math.round(alt))),
-    origin:      { code: '???', name: 'En Route', lat: trajectory[0][0], lng: trajectory[0][1] },
-    destination: { code: '???', name: 'En Route', lat: trajectory[2][0], lng: trajectory[2][1] },
   };
 }
 
@@ -1243,61 +1263,43 @@ function clearLiveStatus() {
 async function loadLiveData() {
   setLiveStatus('◉  Fetching live feeds…');
 
-  // ── 1. Primary Aircraft: OpenSky Network (Global CORS-enabled API) ────────
+  // ── 1. Aircraft: VATSIM Global Network (CORS Open `*`, 1000+ live flights) ──
   try {
-    const res = await fetch('https://opensky-network.org/api/states/all');
+    const res = await fetch('https://data.vatsim.net/v3/vatsim-data.json');
     if (res.ok) {
       const data = await res.json();
-      if (Array.isArray(data.states)) {
-        const mapped = data.states.map(mapOpenSkyToEntity).filter(Boolean);
+      if (Array.isArray(data.pilots)) {
+        const mapped = data.pilots.map(mapVatsimToEntity).filter(Boolean);
         if (mapped.length > 0) {
-          // Shuffle & take 350 airborne aircraft globally for optimal performance & density
           mapped.sort(() => Math.random() - 0.5);
-          LIVE_AIRCRAFT = mapped.slice(0, 350);
+          LIVE_AIRCRAFT = mapped.slice(0, 400);
         }
       }
     }
   } catch (err) {
-    console.warn('[LOKSA] OpenSky primary aircraft feed failed:', err.message);
+    console.warn('[LOKSA] Primary VATSIM feed failed:', err.message);
   }
 
-  // Fallback: ADSB via corsproxy if OpenSky is unavailable
+  // ── 2. Fallback Aircraft: OpenSky via proxy ──────────────────────────────
   if (!LIVE_AIRCRAFT || LIVE_AIRCRAFT.length === 0) {
     try {
-      const regions = [
-        [50, -10, 2800],
-        [40, -95, 2500],
-        [35, 115, 2500],
-        [-15, 30, 2500]
-      ];
-      const responses = await Promise.allSettled(
-        regions.map(([lat, lon, dist]) =>
-          fetch(`https://corsproxy.io/?url=${encodeURIComponent(`https://api.adsb.lol/v2/lat/${lat}/lon/${lon}/dist/${dist}`)}`)
-            .then(r => r.json())
-        )
-      );
-      const seen = new Set();
-      const entities = [];
-      responses.forEach(r => {
-        if (r.status === 'fulfilled' && Array.isArray(r.value?.ac)) {
-          r.value.ac.forEach(ac => {
-            if (!seen.has(ac.hex)) {
-              seen.add(ac.hex);
-              const e = mapAdsbToEntity(ac);
-              if (e) entities.push(e);
-            }
-          });
+      const res = await fetch('https://api.codetabs.com/v1/proxy?quest=https://opensky-network.org/api/states/all');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.states)) {
+          const mapped = data.states.map(mapOpenSkyToEntity).filter(Boolean);
+          if (mapped.length > 0) {
+            mapped.sort(() => Math.random() - 0.5);
+            LIVE_AIRCRAFT = mapped.slice(0, 300);
+          }
         }
-      });
-      if (entities.length > 0) {
-        LIVE_AIRCRAFT = entities.slice(0, 250);
       }
     } catch (e) {
-      console.warn('[LOKSA] ADSB proxy fallback failed:', e.message);
+      console.warn('[LOKSA] OpenSky fallback failed:', e.message);
     }
   }
 
-  // ── 2. Earthquakes: USGS M2.5+ past 24h ──────────────────────────────────
+  // ── 3. Earthquakes: USGS M2.5+ past 24h (CORS Open `*`) ─────────────────
   try {
     const resp = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson');
     if (resp.ok) {
@@ -1332,5 +1334,5 @@ async function loadLiveData() {
 document.addEventListener('DOMContentLoaded', () => {
   initGlobe();
   loadLiveData();
-  setInterval(loadLiveData, 30000); // auto-refresh every 30 s
+  setInterval(loadLiveData, 15000); // auto-refresh every 15 s
 });
