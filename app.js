@@ -10,6 +10,8 @@ let LIVE_AIRCRAFT = null;   // null = not yet loaded; populated by loadLiveData(
 let LIVE_EVENTS   = null;
 let liveStatusEl  = null;
 
+const GEOAPIFY_API_KEY = 'e1a884017e1e47f49067bf68695aed76';
+
 const AIRLINE_LOOKUP = {
   BAW:'British Airways',    SAS:'Scandinavian Airlines', DLH:'Lufthansa',
   AAL:'American Airlines',  UAL:'United Airlines',        DAL:'Delta Air Lines',
@@ -401,6 +403,37 @@ function openInspection(entity) {
     $('insp-event-data').innerHTML = eventData.map(([k,v]) =>
       `<div class="quick-data-row"><span class="quick-key">${k}</span><span class="quick-val">${v}</span></div>`
     ).join('');
+  }
+
+  // ── Geoapify Integration: Reverse Geocoding ─────────────────────────────
+  const addrEl = $('insp-address');
+  if (addrEl) {
+    addrEl.style.display = 'block';
+    addrEl.textContent = '📍 Resolving location details…';
+    fetchReverseGeocode(entity.lat, entity.lng).then(addr => {
+      if (addr) addrEl.textContent = '📍 ' + addr;
+      else addrEl.style.display = 'none';
+    });
+  }
+
+  // ── Geoapify Integration: Nearby Infrastructure / Places ────────────────
+  const placesSec = $('insp-places-section');
+  const placesList = $('insp-places-list');
+  if (placesSec && placesList) {
+    placesList.innerHTML = '<div style="font-size:11px;color:var(--text-muted)">Scanning surrounding infrastructure…</div>';
+    placesSec.style.display = 'block';
+    fetchNearbyPlaces(entity.lat, entity.lng).then(places => {
+      if (places && places.length > 0) {
+        placesList.innerHTML = places.map(p => `
+          <div class="place-card-item">
+            <span class="place-card-name">🏢 ${p.name}</span>
+            <span class="place-card-cat">${p.category}</span>
+          </div>
+        `).join('');
+      } else {
+        placesSec.style.display = 'none';
+      }
+    });
   }
 
   // Curiosity section
@@ -1057,14 +1090,16 @@ window.addEventListener('resize', () => {
   }
 });
 
-// ─── SEARCH ─────────────────────────────────────────────────────
-$('search-input').addEventListener('keydown', e => {
+// ─── SEARCH (Entity + Geoapify Universal Geocoding) ───────────────
+$('search-input').addEventListener('keydown', async e => {
   if (e.key !== 'Enter') return;
-  const q = e.target.value.trim().toUpperCase();
+  const q = e.target.value.trim();
+  if (!q) return;
+
   const match = getAllEntities().find(en =>
-    (en.callsign && en.callsign.toUpperCase().includes(q)) ||
-    (en.name && en.name.toUpperCase().includes(q)) ||
-    (en.id && String(en.id).toUpperCase().includes(q))
+    (en.callsign && en.callsign.toUpperCase().includes(q.toUpperCase())) ||
+    (en.name && en.name.toUpperCase().includes(q.toUpperCase())) ||
+    (en.id && String(en.id).toUpperCase().includes(q.toUpperCase()))
   );
   if (match) {
     selectedEntity = match;
@@ -1072,8 +1107,105 @@ $('search-input').addEventListener('keydown', e => {
     setTimeout(() => { openInspection(match); setState('inspecting'); }, 900);
     e.target.value = '';
     e.target.blur();
+    return;
+  }
+
+  // Geoapify Geocoding Fallback for global locations/landmarks
+  setLiveStatus('📍 Geocoding location…');
+  const geoResult = await searchGeoapifyLocation(q);
+  if (geoResult) {
+    globe.pointOfView({ lat: geoResult.lat, lng: geoResult.lng, altitude: 1.1 }, 1600);
+    setLiveStatus(`📍 Arrived at ${geoResult.name}`, 'live');
+    setTimeout(clearLiveStatus, 4000);
+    e.target.value = '';
+    e.target.blur();
+  } else {
+    setLiveStatus(`⚠️ Location "${q}" not found`, 'offline');
+    setTimeout(clearLiveStatus, 3000);
   }
 });
+
+// ─── GEOAPIFY API HELPER FUNCTIONS ─────────────────────────────────────────
+async function fetchReverseGeocode(lat, lng) {
+  try {
+    const res = await fetch(`https://api.geoapify.com/v1/geocode/reverse?lat=${lat}&lon=${lng}&apiKey=${GEOAPIFY_API_KEY}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.features && data.features.length > 0) {
+        return data.features[0].properties.formatted || null;
+      }
+    }
+  } catch (e) {
+    console.warn('[Geoapify] Reverse geocode error:', e.message);
+  }
+  return null;
+}
+
+async function fetchNearbyPlaces(lat, lng) {
+  try {
+    const res = await fetch(`https://api.geoapify.com/v2/places?categories=tourism,airport,public_transport,healthcare&filter=circle:${lng},${lat},20000&limit=4&apiKey=${GEOAPIFY_API_KEY}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.features)) {
+        return data.features.map(f => ({
+          name: f.properties.name || f.properties.address_line1 || 'Point of Interest',
+          category: (f.properties.categories?.[0] || 'Infrastructure').replace('.', ' · ')
+        }));
+      }
+    }
+  } catch (e) {
+    console.warn('[Geoapify] Places API error:', e.message);
+  }
+  return [];
+}
+
+async function searchGeoapifyLocation(query) {
+  try {
+    const res = await fetch(`https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(query)}&apiKey=${GEOAPIFY_API_KEY}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.features && data.features.length > 0) {
+        const p = data.features[0].properties;
+        const [lon, lat] = data.features[0].geometry.coordinates;
+        return {
+          name: p.formatted || p.city || query,
+          lat, lng: lon
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('[Geoapify] Search error:', e.message);
+  }
+  return null;
+}
+
+// ─── GEOAPIFY STREET INTEL MODAL CONTROLS ─────────────────────────────────
+const btnStreet = $('btn-street-intel');
+const modalStreet = $('modal-street-intel');
+const btnCloseStreet = $('btn-close-street');
+
+if (btnStreet) {
+  btnStreet.addEventListener('click', async () => {
+    if (!selectedEntity) return;
+    const { lat, lng } = selectedEntity;
+    modalStreet.classList.remove('hidden');
+    $('street-loc-coords').textContent = fmt.coords(lat, lng);
+    $('street-loc-name').textContent = 'Loading location intelligence…';
+
+    const addr = await fetchReverseGeocode(lat, lng);
+    $('street-loc-name').textContent = addr || (selectedEntity.callsign || selectedEntity.name);
+
+    // Render high-res Geoapify static street map with building & road detail
+    const mapUrl = `https://maps.geoapify.com/v1/staticmap?style=dark-matter&width=820&height=480&center=lonlat:${lng},${lat}&zoom=14&marker=lonlat:${lng},${lat};color:%234a9fff;size:medium&apiKey=${GEOAPIFY_API_KEY}`;
+    $('street-map-frame').innerHTML = `<img src="${mapUrl}" alt="Geoapify Street Intel" style="width:100%;height:100%;object-fit:cover;" />`;
+  });
+}
+
+if (btnCloseStreet) {
+  btnCloseStreet.addEventListener('click', () => {
+    modalStreet.classList.add('hidden');
+  });
+}
 
 // ─── SAVE from inspection ─────────────────────────────────────────────────────
 $('btn-save-insp').addEventListener('click', () => {

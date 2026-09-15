@@ -117,7 +117,14 @@
         </div>
       </div>
       <div class="coords-display" id="insp-coords">—</div>
+      <div class="address-display" id="insp-address" style="font-family:var(--font-data);font-size:11px;color:var(--text-secondary);margin-bottom:6px;display:none;"></div>
       <div class="timestamp-display" id="insp-ts">—</div>
+    </div>
+
+    <!-- Geoapify Nearby Places / Infrastructure -->
+    <div class="panel-section" id="insp-places-section" style="display:none">
+      <div class="section-label">NEARBY INFRASTRUCTURE & PLACES</div>
+      <div id="insp-places-list" style="display:flex;flex-direction:column;gap:6px;"></div>
     </div>
 
     <!-- Route -->
@@ -165,9 +172,12 @@
     </div>
 
     <!-- Actions -->
-    <div class="panel-actions" id="insp-actions">
+    <div class="panel-actions" id="insp-actions" style="grid-template-columns: 1fr 1fr 1fr 1fr;">
       <button class="btn-action btn-follow" id="btn-follow">
         <span class="btn-icon">◎</span>FOLLOW
+      </button>
+      <button class="btn-action btn-street" id="btn-street-intel">
+        <span class="btn-icon">👁</span>STREET INTEL
       </button>
       <button class="btn-action btn-investigate" id="btn-investigate">
         <span class="btn-icon">⟳</span>INVESTIGATE
@@ -177,6 +187,27 @@
       </button>
     </div>
 
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       GEOAPIFY STREET INTEL MODAL (Micro-Level Street & Building Detail View)
+  ════════════════════════════════════════════════════════════════════ -->
+  <div id="modal-street-intel" class="modal-street-intel hidden">
+    <div class="street-intel-content">
+      <div class="street-intel-header">
+        <div class="street-intel-title">
+          <span class="street-icon">👁</span> HIGH-RESOLUTION LOCAL STREET INTEL
+        </div>
+        <button class="street-intel-close" id="btn-close-street">✕</button>
+      </div>
+      <div class="street-intel-meta">
+        <span id="street-loc-name">Resolving location…</span>
+        <span id="street-loc-coords" class="street-coords"></span>
+      </div>
+      <div class="street-map-frame" id="street-map-frame">
+        <!-- Render high-res Geoapify street & building tile map preview -->
+      </div>
+    </div>
   </div>
 
   <!-- ═══════════════════════════════════════════════════════════════════

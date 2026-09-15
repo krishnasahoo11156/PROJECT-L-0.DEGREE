@@ -845,3 +845,64 @@ body.state-investigating #world-hud { pointer-events: none; }
 #live-status.live    { border-color: rgba(62,207,170,0.5); color: var(--success); }
 #live-status.offline { border-color: rgba(224,85,85,0.4);  color: var(--alert); }
 
+/* ─── GEOAPIFY STREET INTEL MODAL ────────────────────────────────────────── */
+.modal-street-intel {
+  position: fixed; inset: 0;
+  z-index: 1000;
+  background: rgba(4,8,14,0.85);
+  backdrop-filter: blur(18px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  animation: fadeUp 0.3s ease;
+}
+.street-intel-content {
+  width: 100%; max-width: 860px; height: 580px;
+  background: var(--surface-1);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 40px rgba(74,159,255,0.25);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.street-intel-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--surface-2);
+}
+.street-intel-title {
+  font-family: var(--font-data); font-size: 13px; font-weight: 700;
+  letter-spacing: 0.15em; color: var(--accent);
+  display: flex; align-items: center; gap: 8px;
+}
+.street-intel-close {
+  background: transparent; border: none; color: var(--text-muted);
+  font-size: 18px; cursor: pointer; transition: color var(--trans-fast);
+}
+.street-intel-close:hover { color: var(--text-primary); }
+.street-intel-meta {
+  padding: 10px 24px;
+  font-size: 12px; color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--bg-dark);
+}
+.street-coords { font-family: var(--font-data); color: var(--accent); }
+.street-map-frame {
+  flex: 1; position: relative; background: #0b141d;
+  display: flex; align-items: center; justify-content: center;
+}
+.street-tile-grid {
+  width: 100%; height: 100%; position: relative; overflow: hidden;
+  background-size: cover; background-position: center;
+}
+.btn-action.btn-street:hover {
+  border-color: #A07CFE; color: #A07CFE; background: rgba(160,124,254,0.15);
+}
+.place-card-item {
+  padding: 8px 12px; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius); font-size: 11px; display: flex; align-items: center; justify-content: space-between;
+}
+.place-card-name { font-weight: 500; color: var(--text-primary); }
+.place-card-cat { font-family: var(--font-data); font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+
