@@ -84,11 +84,23 @@
         <span class="ge-camera-text" id="ge-camera-alt">Camera: 14,985 km</span>
         <span class="ge-coords-text" id="ge-camera-coords">31°45'52"N 83°28'05"E</span>
       </div>
+
+      <!-- 4-Way Directional Navigation D-Pad (North, South, East, West) -->
+      <div class="ge-dpad">
+        <button class="ge-dpad-btn ge-dpad-up" id="ge-btn-up" title="Pan North (▲ / Up Arrow)">▲</button>
+        <div class="ge-dpad-row">
+          <button class="ge-dpad-btn ge-dpad-left" id="ge-btn-left" title="Pan West (◀ / Left Arrow)">◀</button>
+          <button class="ge-dpad-btn ge-dpad-center" id="ge-btn-compass" title="Reset North">🧭</button>
+          <button class="ge-dpad-btn ge-dpad-right" id="ge-btn-right" title="Pan East (▶ / Right Arrow)">▶</button>
+        </div>
+        <button class="ge-dpad-btn ge-dpad-down" id="ge-btn-down" title="Pan South (▼ / Down Arrow)">▼</button>
+      </div>
+
+      <!-- Zoom & 3D Controls -->
       <div class="ge-control-buttons">
-        <button class="ge-btn" id="ge-btn-compass" title="Reset North">🧭</button>
         <button class="ge-btn" id="ge-btn-3d" title="3D View Tilt">3D</button>
-        <button class="ge-btn" id="ge-btn-zoom-in" title="Zoom In">+</button>
-        <button class="ge-btn" id="ge-btn-zoom-out" title="Zoom Out">−</button>
+        <button class="ge-btn" id="ge-btn-zoom-in" title="Zoom In (+)">+</button>
+        <button class="ge-btn" id="ge-btn-zoom-out" title="Zoom Out (−)">−</button>
       </div>
     </div>
 

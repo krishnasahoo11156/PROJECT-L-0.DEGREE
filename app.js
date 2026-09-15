@@ -11,6 +11,7 @@ let LIVE_EVENTS   = null;
 let liveStatusEl  = null;
 
 const GEOAPIFY_API_KEY = 'e1a884017e1e47f49067bf68695aed76';
+const GEOAPIFY_STATIC_MAP_KEY = '0dbc443d8ae34c3ba597d8ae5b704db2';
 
 const AIRLINE_LOOKUP = {
   BAW:'British Airways',    SAS:'Scandinavian Airlines', DLH:'Lufthansa',
@@ -371,23 +372,73 @@ function setupGoogleEarthControls() {
   globe.controls().addEventListener('change', updateHUD);
   updateHUD();
 
-  // Navigation button handlers
-  const btnZoomIn = $('ge-btn-zoom-in');
-  if (btnZoomIn) {
-    btnZoomIn.addEventListener('click', () => {
-      const pov = globe.pointOfView();
-      globe.pointOfView({ altitude: Math.max(0.1, pov.altitude * 0.65) }, 500);
-    });
-  }
+  // ─── CAMERA PAN & ZOOM HELPERS ──────────────────────────────────────────────
+  const panCamera = (deltaLatDir, deltaLngDir) => {
+    const pov = globe.pointOfView();
+    // Altitude-scaled step size (larger steps at high altitude, finer at low altitude)
+    const step = Math.max(0.15, pov.altitude * 6);
+    let targetLat = pov.lat + deltaLatDir * step;
+    let targetLng = pov.lng + deltaLngDir * step;
 
-  const btnZoomOut = $('ge-btn-zoom-out');
-  if (btnZoomOut) {
-    btnZoomOut.addEventListener('click', () => {
-      const pov = globe.pointOfView();
-      globe.pointOfView({ altitude: Math.min(4.5, pov.altitude * 1.45) }, 500);
-    });
-  }
+    // Clamp latitude to avoid pole inversion issues
+    targetLat = Math.max(-85, Math.min(85, targetLat));
 
+    // Normalize longitude between -180 and 180
+    if (targetLng > 180) targetLng -= 360;
+    if (targetLng < -180) targetLng += 360;
+
+    globe.pointOfView({ lat: targetLat, lng: targetLng, altitude: pov.altitude }, 120);
+  };
+
+  const zoomCamera = (factor) => {
+    const pov = globe.pointOfView();
+    const newAlt = factor < 1 
+      ? Math.max(0.08, pov.altitude * factor) 
+      : Math.min(4.5, pov.altitude * factor);
+    globe.pointOfView({ altitude: newAlt }, 200);
+  };
+
+  // Continuous Hold / Press Helper for Buttons
+  const bindContinuousHold = (elementId, actionFn) => {
+    const btn = $(elementId);
+    if (!btn) return;
+    let timer = null;
+    let interval = null;
+
+    const start = (e) => {
+      e.preventDefault();
+      actionFn();
+      timer = setTimeout(() => {
+        interval = setInterval(actionFn, 90);
+      }, 250);
+    };
+
+    const stop = () => {
+      if (timer) clearTimeout(timer);
+      if (interval) clearInterval(interval);
+      timer = null;
+      interval = null;
+    };
+
+    btn.addEventListener('mousedown', start);
+    btn.addEventListener('mouseup', stop);
+    btn.addEventListener('mouseleave', stop);
+    btn.addEventListener('touchstart', start, { passive: false });
+    btn.addEventListener('touchend', stop);
+    btn.addEventListener('touchcancel', stop);
+  };
+
+  // Bind D-Pad Navigation Buttons
+  bindContinuousHold('ge-btn-up', () => panCamera(1, 0));
+  bindContinuousHold('ge-btn-down', () => panCamera(-1, 0));
+  bindContinuousHold('ge-btn-left', () => panCamera(0, -1));
+  bindContinuousHold('ge-btn-right', () => panCamera(0, 1));
+
+  // Bind Zoom Buttons
+  bindContinuousHold('ge-btn-zoom-in', () => zoomCamera(0.72));
+  bindContinuousHold('ge-btn-zoom-out', () => zoomCamera(1.38));
+
+  // 3D Tilt View Handler
   let is3DTilted = false;
   const btn3D = $('ge-btn-3d');
   if (btn3D) {
@@ -397,18 +448,61 @@ function setupGoogleEarthControls() {
       if (is3DTilted) {
         controls.maxPolarAngle = Math.PI / 2.2;
         globe.pointOfView({ altitude: Math.min(1.2, globe.pointOfView().altitude) }, 800);
+        btn3D.classList.add('active');
       } else {
         controls.maxPolarAngle = Math.PI;
+        btn3D.classList.remove('active');
       }
     });
   }
 
+  // Compass Reset North Handler
   const btnCompass = $('ge-btn-compass');
   if (btnCompass) {
     btnCompass.addEventListener('click', () => {
-      globe.pointOfView({ lat: globe.pointOfView().lat, lng: globe.pointOfView().lng }, 500);
+      const currentPov = globe.pointOfView();
+      globe.pointOfView({ lat: currentPov.lat, lng: currentPov.lng }, 500);
+      if (globe.controls()) {
+        globe.controls().reset();
+      }
     });
   }
+
+  // Keyboard Navigation Listener (Arrow Keys, WASD, +, -)
+  document.addEventListener('keydown', (e) => {
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+
+    switch (e.key) {
+      case 'ArrowUp':
+      case 'w':
+      case 'W':
+        panCamera(1, 0);
+        break;
+      case 'ArrowDown':
+      case 's':
+      case 'S':
+        panCamera(-1, 0);
+        break;
+      case 'ArrowLeft':
+      case 'a':
+      case 'A':
+        panCamera(0, -1);
+        break;
+      case 'ArrowRight':
+      case 'd':
+      case 'D':
+        panCamera(0, 1);
+        break;
+      case '+':
+      case '=':
+        zoomCamera(0.75);
+        break;
+      case '-':
+      case '_':
+        zoomCamera(1.35);
+        break;
+    }
+  });
 }
 
 // ─── AIRCRAFT MOVEMENT ────────────────────────────────────────────────────────
@@ -1335,8 +1429,8 @@ if (btnStreet) {
     const addr = await fetchReverseGeocode(lat, lng);
     $('street-loc-name').textContent = addr || (selectedEntity.callsign || selectedEntity.name);
 
-    // Render high-res Geoapify static street map with building & road detail
-    const mapUrl = `https://maps.geoapify.com/v1/staticmap?style=dark-matter&width=820&height=480&center=lonlat:${lng},${lat}&zoom=14&marker=lonlat:${lng},${lat};color:%234a9fff;size:medium&apiKey=${GEOAPIFY_API_KEY}`;
+    // Render high-res Geoapify static street map with building & road detail using dedicated key
+    const mapUrl = `https://maps.geoapify.com/v1/staticmap?style=dark-matter&width=820&height=480&center=lonlat:${lng},${lat}&zoom=14&marker=lonlat:${lng},${lat};color:%234a9fff;size:medium&apiKey=${GEOAPIFY_STATIC_MAP_KEY}`;
     $('street-map-frame').innerHTML = `<img src="${mapUrl}" alt="Geoapify Street Intel" style="width:100%;height:100%;object-fit:cover;" />`;
   });
 }

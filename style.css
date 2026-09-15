@@ -942,3 +942,21 @@ body.state-investigating #world-hud { pointer-events: none; }
 }
 .ge-btn:hover { background: rgba(255,255,255,0.15); color: var(--accent); }
 
+/* ─── 4-WAY DIRECTIONAL NAV D-PAD ─────────────────────────────────────── */
+.ge-dpad {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: rgba(6,10,15,0.85); padding: 5px; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(12px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+.ge-dpad-row { display: flex; align-items: center; gap: 2px; }
+.ge-dpad-btn {
+  width: 24px; height: 24px; border-radius: 50%; border: none;
+  background: transparent; color: var(--text-primary);
+  font-family: var(--font-data); font-size: 10px; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all var(--trans-fast);
+}
+.ge-dpad-btn:hover { background: rgba(74,159,255,0.25); color: var(--accent); transform: scale(1.1); }
+.ge-dpad-center { font-size: 12px; }
+
