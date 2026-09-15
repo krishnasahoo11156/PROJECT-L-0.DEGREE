@@ -251,13 +251,12 @@ function updateGlobeEntities() {
 function startAircraftMovement() {
   setInterval(() => {
     let changed = false;
-    AIRCRAFT.forEach(a => {
-      const newProg = Math.min(1, a.progress + 0.004);
-      if (newProg !== a.progress) {
-        a.progress = newProg;
-        const pos = getPositionAlongTrajectory(a.trajectory, a.progress);
-        a.lat = pos[0];
-        a.lng = pos[1];
+    const activeAircraft = LIVE_AIRCRAFT !== null ? LIVE_AIRCRAFT : AIRCRAFT;
+    activeAircraft.forEach(a => {
+      if (typeof a.heading === 'number' && typeof a.lat === 'number' && typeof a.lng === 'number') {
+        const rad = (a.heading * Math.PI) / 180;
+        a.lat += Math.cos(rad) * 0.0008;
+        a.lng += Math.sin(rad) * 0.0008 / Math.max(0.1, Math.cos((a.lat * Math.PI) / 180));
         changed = true;
       }
     });
@@ -268,7 +267,7 @@ function startAircraftMovement() {
         globe.pointOfView({ lat: selectedEntity.lat, lng: selectedEntity.lng }, 0);
       }
     }
-  }, 4000);
+  }, 3000);
 }
 
 // ─── TIME SLIDER ──────────────────────────────────────────────────────────────
@@ -278,12 +277,14 @@ $('time-slider').addEventListener('input', e => {
   const label = val === 100 ? 'NOW' : `−${Math.abs(timeOffset).toFixed(1)}h`;
   $('time-label').textContent = label;
 
-  // Interpolate aircraft positions back in time
-  AIRCRAFT.forEach(a => {
-    const backProg = Math.max(0, a.progress + timeOffset * 0.012);
-    const pos = getPositionAlongTrajectory(a.trajectory, backProg);
-    a._displayLat = pos[0];
-    a._displayLng = pos[1];
+  const activeAircraft = LIVE_AIRCRAFT !== null ? LIVE_AIRCRAFT : AIRCRAFT;
+  activeAircraft.forEach(a => {
+    if (a.trajectory && a.trajectory.length >= 2) {
+      const backProg = Math.max(0, (a.progress || 0.5) + timeOffset * 0.012);
+      const pos = getPositionAlongTrajectory(a.trajectory, backProg);
+      a.lat = pos[0];
+      a.lng = pos[1];
+    }
   });
   updateGlobeEntities();
 });
@@ -720,8 +721,8 @@ function doSurpriseMe() {
 
   setTimeout(() => {
     // Pick a curiosity entity to travel to
-    const curiosities = [...AIRCRAFT, ...EVENTS].filter(e => e.isCuriosity);
-    const target = curiosities[Math.floor(Math.random() * curiosities.length)];
+    const curiosities = getAllEntities().filter(e => e.isCuriosity);
+    const target = curiosities.length > 0 ? curiosities[Math.floor(Math.random() * curiosities.length)] : getAllEntities()[0];
     $('surprise-text').textContent = 'Found something…';
 
     globe.pointOfView({ lat: target.lat, lng: target.lng, altitude: 1.6 }, 2200);
@@ -1034,13 +1035,14 @@ window.addEventListener('resize', () => {
   }
 });
 
-// ─── SEARCH (basic demo) ─────────────────────────────────────────────────────
+// ─── SEARCH ─────────────────────────────────────────────────────
 $('search-input').addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
   const q = e.target.value.trim().toUpperCase();
-  const match = [...AIRCRAFT, ...EVENTS].find(en =>
+  const match = getAllEntities().find(en =>
     (en.callsign && en.callsign.toUpperCase().includes(q)) ||
-    (en.name && en.name.toUpperCase().includes(q))
+    (en.name && en.name.toUpperCase().includes(q)) ||
+    (en.id && String(en.id).toUpperCase().includes(q))
   );
   if (match) {
     selectedEntity = match;
@@ -1109,6 +1111,71 @@ function buildLiveTrajectory(lat, lon, heading) {
   ];
 }
 
+function mapOpenSkyToEntity(vec) {
+  // OpenSky state vector format:
+  // [icao24(0), callsign(1), country(2), timePos(3), lastContact(4), lon(5), lat(6), baroAlt(7), onGround(8), velocity(9), trueTrack(10), vertRate(11), sensors(12), geoAlt(13), squawk(14), spi(15), positionSource(16)]
+  const icao24  = vec[0];
+  const rawCs   = vec[1];
+  const country = vec[2] || '';
+  const timePos = vec[3];
+  const lon     = vec[5];
+  const lat     = vec[6];
+  const baroAlt = vec[7];
+  const onGround = vec[8];
+  const velocity = vec[9];
+  const track   = vec[10];
+  const vertRate = vec[11];
+  const geoAlt  = vec[13];
+  const squawk  = vec[14];
+
+  if (lat == null || lon == null || onGround) return null;
+
+  const callsign = (rawCs || icao24 || '').trim();
+  if (!callsign) return null;
+
+  const altMeters = baroAlt != null ? baroAlt : (geoAlt != null ? geoAlt : 10000);
+  const altitude = Math.max(0, Math.round(altMeters * 3.28084)); // m to ft
+  const speed = velocity != null ? Math.round(velocity * 1.94384) : 450; // m/s to knots
+  const heading = track != null ? Math.round(track) : 0;
+  const squawkStr = squawk || '----';
+
+  const acMeta = {
+    flight: callsign,
+    hex: icao24,
+    squawk: squawkStr,
+    alt_baro: altitude,
+    gs: speed,
+    track: heading
+  };
+
+  const isCuriosity = detectLiveCuriosity(acMeta);
+  const trajectory = buildLiveTrajectory(lat, lon, heading);
+
+  return {
+    id: icao24,
+    type: 'aircraft',
+    callsign,
+    airline: deriveAirline(callsign),
+    aircraftType: 'Commercial / Civil',
+    registration: country,
+    squawk: squawkStr,
+    lat,
+    lng: lon,
+    altitude,
+    speed,
+    heading,
+    verticalRate: vertRate != null ? Math.round(vertRate * 196.85) : 0, // m/s to ft/min
+    progress: 0.5,
+    timestamp: timePos ? new Date(timePos * 1000).toISOString() : new Date().toISOString(),
+    isCuriosity,
+    curiosityNote: isCuriosity ? getLiveCuriosityNote(acMeta) : null,
+    trajectory,
+    altitudeHistory: Array(10).fill(altitude),
+    origin: { code: country ? country.slice(0, 3).toUpperCase() : 'ORIG', name: country || 'Origin Country', lat: trajectory[0][0], lng: trajectory[0][1] },
+    destination: { code: 'DEST', name: 'En Route', lat: trajectory[2][0], lng: trajectory[2][1] }
+  };
+}
+
 function mapAdsbToEntity(ac) {
   if (!ac.lat || !ac.lon) return null;
   const callsign = (ac.flight || ac.hex || '').trim();
@@ -1144,7 +1211,7 @@ function mapUsgsToEvent(feature) {
   const p        = feature.properties;
   const [lon, lat, depth] = feature.geometry.coordinates;
   const mag      = p.mag || 0;
-  const isCuriosity = mag >= 6.0;
+  const isCuriosity = mag >= 5.5;
   return {
     id: feature.id,
     type: 'earthquake',
@@ -1176,68 +1243,89 @@ function clearLiveStatus() {
 async function loadLiveData() {
   setLiveStatus('◉  Fetching live feeds…');
 
-  // ── Aircraft: ADSB.lol, 4 global regions ──────────────────────────────────
-  const regions = [
-    [50, -10, 2800],   // Europe + North Atlantic
-    [40, -95, 2500],   // North America
-    [35, 115, 2500],   // East Asia / Pacific
-    [-15, 30, 2500],   // Africa / Southern hemisphere
-  ];
+  // ── 1. Primary Aircraft: OpenSky Network (Global CORS-enabled API) ────────
   try {
-    const responses = await Promise.allSettled(
-      regions.map(([lat, lon, dist]) =>
-        fetch(`https://api.adsb.lol/v2/lat/${lat}/lon/${lon}/dist/${dist}`)
-          .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-      )
-    );
-    const seen     = new Set();
-    const entities = [];
-    responses.forEach(r => {
-      if (r.status === 'fulfilled' && Array.isArray(r.value?.ac)) {
-        r.value.ac.forEach(ac => {
-          if (!seen.has(ac.hex)) {
-            seen.add(ac.hex);
-            const e = mapAdsbToEntity(ac);
-            if (e) entities.push(e);
-          }
-        });
+    const res = await fetch('https://opensky-network.org/api/states/all');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.states)) {
+        const mapped = data.states.map(mapOpenSkyToEntity).filter(Boolean);
+        if (mapped.length > 0) {
+          // Shuffle & take 350 airborne aircraft globally for optimal performance & density
+          mapped.sort(() => Math.random() - 0.5);
+          LIVE_AIRCRAFT = mapped.slice(0, 350);
+        }
       }
-    });
-    if (entities.length > 0) {
-      entities.sort(() => Math.random() - 0.5);
-      LIVE_AIRCRAFT = entities.slice(0, 250);
     }
   } catch (err) {
-    console.warn('[LOKSA] Aircraft feed failed:', err.message);
+    console.warn('[LOKSA] OpenSky primary aircraft feed failed:', err.message);
   }
 
-  // ── Earthquakes: USGS M4.5+ past day ────────────────────────────────────
+  // Fallback: ADSB via corsproxy if OpenSky is unavailable
+  if (!LIVE_AIRCRAFT || LIVE_AIRCRAFT.length === 0) {
+    try {
+      const regions = [
+        [50, -10, 2800],
+        [40, -95, 2500],
+        [35, 115, 2500],
+        [-15, 30, 2500]
+      ];
+      const responses = await Promise.allSettled(
+        regions.map(([lat, lon, dist]) =>
+          fetch(`https://corsproxy.io/?url=${encodeURIComponent(`https://api.adsb.lol/v2/lat/${lat}/lon/${lon}/dist/${dist}`)}`)
+            .then(r => r.json())
+        )
+      );
+      const seen = new Set();
+      const entities = [];
+      responses.forEach(r => {
+        if (r.status === 'fulfilled' && Array.isArray(r.value?.ac)) {
+          r.value.ac.forEach(ac => {
+            if (!seen.has(ac.hex)) {
+              seen.add(ac.hex);
+              const e = mapAdsbToEntity(ac);
+              if (e) entities.push(e);
+            }
+          });
+        }
+      });
+      if (entities.length > 0) {
+        LIVE_AIRCRAFT = entities.slice(0, 250);
+      }
+    } catch (e) {
+      console.warn('[LOKSA] ADSB proxy fallback failed:', e.message);
+    }
+  }
+
+  // ── 2. Earthquakes: USGS M2.5+ past 24h ──────────────────────────────────
   try {
-    const resp = await fetch(
-      'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson'
-    );
-    const data = await resp.json();
-    if (Array.isArray(data.features)) {
-      LIVE_EVENTS = data.features
-        .filter(f => f.geometry?.coordinates && typeof f.properties.mag === 'number')
-        .map(mapUsgsToEvent);
+    const resp = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson');
+    if (resp.ok) {
+      const data = await resp.json();
+      if (Array.isArray(data.features)) {
+        LIVE_EVENTS = data.features
+          .filter(f => f.geometry?.coordinates && typeof f.properties.mag === 'number')
+          .map(mapUsgsToEvent);
+      }
     }
   } catch (err) {
     console.warn('[LOKSA] Earthquake feed failed:', err.message);
   }
 
-  // ── Refresh globe + status ────────────────────────────────────────────────
+  // Refresh globe + UI counters & status pill
   updateGlobeEntities();
-  const acN  = LIVE_AIRCRAFT ? LIVE_AIRCRAFT.length : AIRCRAFT.length;
-  const eqN  = LIVE_EVENTS   ? LIVE_EVENTS.length   : EVENTS.length;
+
+  const acN = LIVE_AIRCRAFT ? LIVE_AIRCRAFT.length : AIRCRAFT.length;
+  const eqN = LIVE_EVENTS ? LIVE_EVENTS.length : EVENTS.length;
   const live = LIVE_AIRCRAFT !== null || LIVE_EVENTS !== null;
+
   setLiveStatus(
     live
-      ? `◉  LIVE  ·  ${acN} aircraft  ·  ${eqN} seismic events`
+      ? `◉  LIVE  ·  ${acN} live aircraft  ·  ${eqN} seismic events`
       : '○  Demo mode — live feeds unavailable',
     live ? 'live' : 'offline'
   );
-  setTimeout(clearLiveStatus, live ? 4500 : 7000);
+  setTimeout(clearLiveStatus, live ? 5000 : 7000);
 }
 
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
