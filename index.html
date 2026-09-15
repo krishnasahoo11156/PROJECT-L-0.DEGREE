@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LOKṢA — Living Atlas</title>
+  <meta name="description" content="An interactive exploration game. The real world, alive and waiting to be discovered.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       GLOBE (persistent — always rendered in background)
+  ════════════════════════════════════════════════════════════════════ -->
+  <div id="globe-container"></div>
+
+  <!-- Hover tooltip (entity name on hover) -->
+  <div id="entity-tooltip" class="entity-tooltip hidden">
+    <div class="tooltip-callsign" id="tt-callsign"></div>
+    <div class="tooltip-type" id="tt-type"></div>
+  </div>
+
+  <!-- Curiosity tooltip (shown on curiosity entity hover) -->
+  <div id="curiosity-tooltip" class="curiosity-tooltip hidden">
+    <div class="curiosity-pulse-dot"></div>
+    <span class="curiosity-tip-text" id="curiosity-tip-text">This caught our attention</span>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       WORLD HUD (always visible over globe, fades in atlas/journal)
+  ════════════════════════════════════════════════════════════════════ -->
+  <div id="world-hud" class="world-hud">
+
+    <!-- Top-left: Wordmark -->
+    <div class="hud-wordmark">
+      <div class="wordmark-main">LOKṢA</div>
+      <div class="wordmark-sub">Living Atlas</div>
+    </div>
+
+    <!-- Top-right: entity count + atlas button -->
+    <div class="hud-top-right">
+      <div class="entity-count-badge" id="entity-count-badge">
+        <span class="entity-count-number">12</span>
+        <span class="entity-count-dot">entities</span>
+        <span class="curiosity-badge" id="curiosity-count">4 curiosities</span>
+      </div>
+      <button class="btn-atlas" id="btn-open-atlas" title="Open My Atlas">
+        <span class="btn-atlas-icon">◈</span>
+        <span class="btn-atlas-text">MY ATLAS</span>
+        <span class="btn-atlas-count" id="atlas-count-badge">42</span>
+      </button>
+    </div>
+
+    <!-- Bottom-center: search + surprise me -->
+    <div class="hud-bottom">
+      <div class="search-container">
+        <div class="search-icon">⌕</div>
+        <input type="text" class="search-input" id="search-input"
+               placeholder="Search location, callsign, or event…"
+               autocomplete="off" spellcheck="false">
+      </div>
+      <button class="btn-surprise" id="btn-surprise" title="Take me somewhere interesting">
+        <span>SURPRISE ME</span>
+        <span class="btn-surprise-arrow">→</span>
+      </button>
+    </div>
+
+    <!-- Bottom-left: time slider -->
+    <div class="time-control" id="time-control">
+      <div class="time-label" id="time-label">NOW</div>
+      <div class="time-slider-track">
+        <input type="range" class="time-slider" id="time-slider" min="0" max="100" value="100">
+      </div>
+      <div class="time-range">−6h</div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       INSPECTION PANEL (slides in from right on entity click)
+  ════════════════════════════════════════════════════════════════════ -->
+  <div id="panel-inspection" class="panel-inspection" role="complementary" aria-label="Entity inspection">
+
+    <div class="panel-header">
+      <div class="panel-header-left">
+        <div class="panel-entity-type" id="insp-entity-type">AIRCRAFT</div>
+        <div class="panel-callsign" id="insp-callsign">—</div>
+      </div>
+      <button class="panel-close" id="insp-close" aria-label="Close panel">✕</button>
+    </div>
+
+    <div class="panel-status-bar">
+      <div class="status-dot"></div>
+      <span class="status-text" id="insp-status">AIRBORNE</span>
+      <span class="status-airline" id="insp-airline"></span>
+    </div>
+
+    <!-- Position data -->
+    <div class="panel-section">
+      <div class="section-label">POSITION</div>
+      <div class="data-grid">
+        <div class="data-item">
+          <div class="data-label">ALT</div>
+          <div class="data-value" id="insp-alt">—</div>
+        </div>
+        <div class="data-item">
+          <div class="data-label">SPEED</div>
+          <div class="data-value" id="insp-speed">—</div>
+        </div>
+        <div class="data-item">
+          <div class="data-label">HDG</div>
+          <div class="data-value" id="insp-hdg">—</div>
+        </div>
+        <div class="data-item">
+          <div class="data-label">SQUAWK</div>
+          <div class="data-value" id="insp-squawk">—</div>
+        </div>
+      </div>
+      <div class="coords-display" id="insp-coords">—</div>
+      <div class="timestamp-display" id="insp-ts">—</div>
+    </div>
+
+    <!-- Route -->
+    <div class="panel-section" id="insp-route-section">
+      <div class="section-label">ROUTE</div>
+      <div class="route-display">
+        <div class="route-airport">
+          <div class="airport-code" id="insp-origin">—</div>
+          <div class="airport-name" id="insp-origin-name"></div>
+        </div>
+        <div class="route-middle">
+          <div class="route-progress-bar">
+            <div class="route-progress-fill" id="insp-prog-fill" style="width:50%"></div>
+            <div class="route-progress-dot"></div>
+          </div>
+          <div class="route-progress-pct" id="insp-prog-pct">50%</div>
+        </div>
+        <div class="route-airport">
+          <div class="airport-code" id="insp-dest">—</div>
+          <div class="airport-name" id="insp-dest-name"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI curiosity (shown only for curiosity entities) -->
+    <div class="panel-section panel-curiosity" id="insp-curiosity-section" style="display:none">
+      <div class="curiosity-label">
+        <span class="curiosity-icon">◈</span>
+        WHY DID THIS CATCH OUR ATTENTION?
+      </div>
+      <div class="curiosity-explanation" id="insp-curiosity-text"></div>
+      <div class="confidence-row">
+        <div class="confidence-label">CONFIDENCE</div>
+        <div class="confidence-bar">
+          <div class="confidence-fill" id="insp-conf-fill" style="width:70%"></div>
+        </div>
+        <div class="confidence-value" id="insp-conf-val">70%</div>
+      </div>
+    </div>
+
+    <!-- Event-specific section -->
+    <div class="panel-section" id="insp-event-section" style="display:none">
+      <div class="section-label">EVENT DETAILS</div>
+      <div id="insp-event-data"></div>
+    </div>
+
+    <!-- Actions -->
+    <div class="panel-actions" id="insp-actions">
+      <button class="btn-action btn-follow" id="btn-follow">
+        <span class="btn-icon">◎</span>FOLLOW
+      </button>
+      <button class="btn-action btn-investigate" id="btn-investigate">
+        <span class="btn-icon">⟳</span>INVESTIGATE
+      </button>
+      <button class="btn-action btn-save" id="btn-save-insp">
+        <span class="btn-icon">◈</span>SAVE
+      </button>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       FOLLOW PANEL (slides up from bottom)
+  ════════════════════════════════════════════════════════════════════ -->
+  <div id="panel-follow" class="panel-follow" role="complementary" aria-label="Follow mode">
+
+    <div class="follow-header">
+      <div class="follow-badge">FOLLOWING</div>
+      <div class="follow-entity-name" id="follow-callsign">—</div>
+      <div class="follow-entity-meta" id="follow-meta"></div>
+      <button class="btn-stop-follow" id="btn-stop-follow">STOP ✕</button>
+    </div>
+
+    <div class="follow-timeline">
+      <div class="timeline-header">
+        <span class="timeline-label">ALTITUDE PROFILE</span>
+        <span class="timeline-range">Last 30 min</span>
+      </div>
+      <canvas id="timeline-chart" class="timeline-chart" width="600" height="72"></canvas>
+      <div class="timeline-axis">
+        <span>−30min</span><span>−20min</span><span>−10min</span><span>NOW</span>
+      </div>
+    </div>
+
+    <div class="follow-events" id="follow-events-list">
+      <!-- Event notifications injected here -->
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       INVESTIGATION PANEL (side-by-side with shrunken globe)
+  ════════════════════════════════════════════════════════════════════ -->
+  <div id="panel-investigation" class="panel-investigation" role="main" aria-label="Investigation">
+
+    <div class="investigation-header">
+      <button class="btn-back" id="btn-back-investigation">← BACK</button>
+      <div class="investigation-title">
+        <div class="investigation-entity" id="inv-entity-name">—</div>
+        <div class="investigation-subtitle">Investigation Mode</div>
+      </div>
+    </div>
+
+    <div class="investigation-tabs" role="tablist">
+      <button class="inv-tab active" data-tab="data" role="tab">DATA</button>
+      <button class="inv-tab" data-tab="context" role="tab">CONTEXT</button>
+      <button class="inv-tab" data-tab="related" role="tab">RELATED</button>
+      <button class="inv-tab" data-tab="understanding" role="tab">UNDERSTANDING</button>
+    </div>
+
+    <!-- DATA tab -->
+    <div class="inv-tab-content active" id="inv-tab-data" role="tabpanel">
+      <div class="inv-section">
+        <div class="inv-section-title">TECHNICAL DATA</div>
+        <table class="data-table" id="inv-data-table"></table>
+      </div>
+      <div class="inv-section">
+        <div class="inv-section-title">TRAJECTORY WAYPOINTS</div>
+        <div id="inv-waypoints"></div>
+      </div>
+    </div>
+
+    <!-- CONTEXT tab -->
+    <div class="inv-tab-content" id="inv-tab-context" role="tabpanel">
+      <div class="inv-section">
+        <div class="inv-section-title">OBSERVATIONS</div>
+        <div class="ai-narrative" id="inv-narrative"></div>
+      </div>
+      <div class="inv-section">
+        <div class="inv-section-title">ALTITUDE / SPEED HISTORY</div>
+        <canvas id="context-chart" class="context-chart" width="500" height="100"></canvas>
+      </div>
+    </div>
+
+    <!-- RELATED tab -->
+    <div class="inv-tab-content" id="inv-tab-related" role="tabpanel">
+      <div id="inv-related-list"></div>
+    </div>
+
+    <!-- UNDERSTANDING tab -->
+    <div class="inv-tab-content" id="inv-tab-understanding" role="tabpanel">
+      <div class="understanding-content">
+        <div class="understanding-analysis" id="inv-understanding"></div>
+        <div class="conf-section">
+          <div class="conf-label-lg">ANALYTICAL CONFIDENCE</div>
+          <div class="conf-bar-lg"><div class="conf-fill-lg" id="inv-conf-fill"></div></div>
+          <div class="conf-pct-lg" id="inv-conf-pct">—</div>
+          <div class="conf-sublabel">Based on available flight data and published route information.</div>
+        </div>
+        <button class="btn-action-full" id="inv-btn-save">◈ SAVE AS DISCOVERY</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       SURPRISE ME OVERLAY
+  ════════════════════════════════════════════════════════════════════ -->
+  <div id="surprise-overlay" class="surprise-overlay" aria-live="polite">
+    <div class="surprise-text" id="surprise-text">Looking for something interesting…</div>
+    <div class="surprise-arrive" id="surprise-arrive">Look around.</div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       MY ATLAS (full-page screen)
+  ════════════════════════════════════════════════════════════════════ -->
+  <div id="screen-atlas" class="full-screen screen-atlas" role="main" aria-label="My Atlas">
+
+    <div class="atlas-sidebar">
+      <div class="atlas-header">
+        <button class="btn-back-full" id="btn-back-atlas">← BACK TO WORLD</button>
+        <div class="atlas-title">MY ATLAS</div>
+      </div>
+      <div class="atlas-sidebar-inner">
+
+        <!-- Explorer profile -->
+        <div class="explorer-profile">
+          <div class="profile-name" id="profile-name">LOKṢA</div>
+          <div class="profile-stat-main">
+            <div class="stat-number" id="profile-total">42</div>
+            <div class="stat-label">DISCOVERIES</div>
+          </div>
+          <div class="profile-stats-grid" id="profile-cat-grid">
+            <!-- filled by JS -->
+          </div>
+          <div class="profile-regions-row">
+            <span class="regions-label">REGIONS EXPLORED</span>
+            <span class="regions-num" id="profile-regions">14</span>
+          </div>
+        </div>
+
+        <!-- Discovery list -->
+        <div class="discovery-list-header">
+          <span>DISCOVERIES</span>
+          <span id="discovery-list-count">5</span>
+        </div>
+        <div class="discovery-list" id="discovery-list"></div>
+
+      </div>
+    </div>
+
+    <div class="atlas-map-container">
+      <svg id="atlas-map" class="atlas-map"></svg>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       FIELD JOURNAL (full-page screen)
+  ════════════════════════════════════════════════════════════════════ -->
+  <div id="screen-journal" class="full-screen screen-journal" role="main" aria-label="Field Journal">
+
+    <div class="journal-header">
+      <button class="btn-back-full" id="btn-back-journal">← ATLAS</button>
+      <div class="journal-discovery-num" id="journal-disc-num">DISCOVERY #042</div>
+    </div>
+
+    <div class="journal-body">
+
+      <!-- Left panel: mini map + quick data -->
+      <div class="journal-left">
+        <div class="journal-mini-map" id="journal-mini-map">
+          <svg id="journal-traj-svg" width="100%" height="100%"></svg>
+        </div>
+        <div class="journal-quick-data" id="journal-quick-data"></div>
+      </div>
+
+      <!-- Right: scrollable journal content -->
+      <div class="journal-content">
+
+        <div class="journal-title-section">
+          <div class="journal-category-tag" id="journal-cat-tag">AVIATION</div>
+          <h1 class="journal-title" id="journal-title">—</h1>
+          <div class="journal-meta">
+            <span id="journal-location">—</span>
+            <span class="journal-meta-dot">·</span>
+            <span id="journal-date">—</span>
+            <span class="journal-meta-dot">·</span>
+            <span id="journal-time">—</span>
+          </div>
+          <div class="journal-coords" id="journal-coords">—</div>
+          <div class="journal-status-badge" id="journal-status">● OPEN INVESTIGATION</div>
+        </div>
+
+        <div class="journal-section">
+          <div class="journal-section-title">OBSERVATION</div>
+          <div class="journal-text" id="journal-observation"></div>
+        </div>
+
+        <div class="journal-section">
+          <div class="journal-section-title">TECHNICAL DATA</div>
+          <table class="journal-data-table" id="journal-tech-table"></table>
+        </div>
+
+        <div class="journal-section">
+          <div class="journal-section-title">AI ANALYSIS</div>
+          <div class="journal-ai-text" id="journal-ai"></div>
+          <div class="journal-confidence-row">
+            <span class="journal-conf-label">CONFIDENCE</span>
+            <div class="journal-conf-bar">
+              <div class="journal-conf-fill" id="journal-conf-fill" style="width:70%"></div>
+            </div>
+            <span class="journal-conf-pct" id="journal-conf-pct">70%</span>
+          </div>
+        </div>
+
+        <div class="journal-section" id="journal-related-section">
+          <div class="journal-section-title">RELATED EVENTS</div>
+          <div id="journal-related-list"></div>
+        </div>
+
+        <div class="journal-section">
+          <div class="journal-section-title">MY NOTES</div>
+          <textarea class="journal-notes" id="journal-notes" placeholder="Add your observations here…"></textarea>
+        </div>
+
+        <div class="journal-actions">
+          <button class="journal-btn primary" id="journal-btn-status">UPDATE STATUS</button>
+          <button class="journal-btn" id="journal-btn-share">SHARE DISCOVERY</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       SCRIPTS
+  ════════════════════════════════════════════════════════════════════ -->
+  <!-- D3 + TopoJSON for Atlas map -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+  <!-- Three.js — must load BEFORE globe.gl so both share the same THREE instance -->
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <!-- Globe.gl — beautiful 3D globe with built-in textures -->
+  <script src="https://unpkg.com/globe.gl@2.27.0/dist/globe.gl.min.js"></script>
+  <!-- App (ES module — imports data.js) -->
+  <script type="module" src="app.js"></script>
+
+</body>
+</html>
