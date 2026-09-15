@@ -188,6 +188,7 @@ function initGlobe() {
 
   updateGlobeEntities();
   startAircraftMovement();
+  setupGoogleEarthControls();
 }
 
 // ─── GLOBE ENTITY DATA ────────────────────────────────────────────────────────
@@ -198,11 +199,57 @@ function getAllEntities() {
   return [...aircraft, ...events];
 }
 
+// ─── GEOGRAPHIC LEVEL OF DETAIL (LOD) LABELS ─────────────────────────────────
+const GEOGRAPHIC_LOD_LABELS = [
+  // LEVEL 1: COUNTRIES (Orbit View altitude >= 1.2)
+  { name: 'INDIA', lat: 20.5937, lng: 78.9629, minAlt: 1.2, maxAlt: 5.0, color: '#E2E8F0', size: 1.1 },
+  { name: 'CHINA', lat: 35.8617, lng: 104.1954, minAlt: 1.2, maxAlt: 5.0, color: '#E2E8F0', size: 1.1 },
+  { name: 'RUSSIA', lat: 61.5240, lng: 105.3188, minAlt: 1.2, maxAlt: 5.0, color: '#E2E8F0', size: 1.1 },
+  { name: 'UNITED STATES', lat: 37.0902, lng: -95.7129, minAlt: 1.2, maxAlt: 5.0, color: '#E2E8F0', size: 1.1 },
+  { name: 'JAPAN', lat: 36.2048, lng: 138.2529, minAlt: 1.2, maxAlt: 5.0, color: '#E2E8F0', size: 1.1 },
+  { name: 'UNITED KINGDOM', lat: 55.3781, lng: -3.4360, minAlt: 1.2, maxAlt: 5.0, color: '#E2E8F0', size: 1.1 },
+  { name: 'GERMANY', lat: 51.1657, lng: 10.4515, minAlt: 1.2, maxAlt: 5.0, color: '#E2E8F0', size: 1.1 },
+  { name: 'FRANCE', lat: 46.2276, lng: 2.2137, minAlt: 1.2, maxAlt: 5.0, color: '#E2E8F0', size: 1.1 },
+  { name: 'AUSTRALIA', lat: -25.2744, lng: 133.7751, minAlt: 1.2, maxAlt: 5.0, color: '#E2E8F0', size: 1.1 },
+  { name: 'BRAZIL', lat: -14.2350, lng: -51.9253, minAlt: 1.2, maxAlt: 5.0, color: '#E2E8F0', size: 1.1 },
+  { name: 'SAUDI ARABIA', lat: 23.8859, lng: 45.0792, minAlt: 1.2, maxAlt: 5.0, color: '#E2E8F0', size: 1.1 },
+
+  // LEVEL 2: STATES & MAJOR CITIES (Mid Altitude 0.5 - 1.6)
+  { name: 'Maharashtra', lat: 19.7515, lng: 75.7139, minAlt: 0.5, maxAlt: 1.6, color: '#94A3B8', size: 0.8 },
+  { name: 'Gujarat', lat: 22.2587, lng: 71.1924, minAlt: 0.5, maxAlt: 1.6, color: '#94A3B8', size: 0.8 },
+  { name: 'Rajasthan', lat: 27.0238, lng: 74.2179, minAlt: 0.5, maxAlt: 1.6, color: '#94A3B8', size: 0.8 },
+  { name: 'Karnataka', lat: 15.3173, lng: 75.7139, minAlt: 0.5, maxAlt: 1.6, color: '#94A3B8', size: 0.8 },
+  { name: 'Tamil Nadu', lat: 11.1271, lng: 78.6569, minAlt: 0.5, maxAlt: 1.6, color: '#94A3B8', size: 0.8 },
+  { name: 'West Bengal', lat: 22.9868, lng: 87.8550, minAlt: 0.5, maxAlt: 1.6, color: '#94A3B8', size: 0.8 },
+
+  { name: 'Mumbai (मुंबई)', lat: 19.0760, lng: 72.8777, minAlt: 0.3, maxAlt: 1.5, color: '#38BDF8', size: 0.85 },
+  { name: 'New Delhi (नई दिल्ली)', lat: 28.6139, lng: 77.2090, minAlt: 0.3, maxAlt: 1.5, color: '#38BDF8', size: 0.85 },
+  { name: 'Bengaluru (बंगलौर)', lat: 12.9716, lng: 77.5946, minAlt: 0.3, maxAlt: 1.5, color: '#38BDF8', size: 0.85 },
+  { name: 'Jaipur (जयपुर)', lat: 26.9124, lng: 75.7873, minAlt: 0.3, maxAlt: 1.5, color: '#38BDF8', size: 0.85 },
+  { name: 'Nagpur (नागपुर)', lat: 21.1458, lng: 79.0882, minAlt: 0.3, maxAlt: 1.5, color: '#38BDF8', size: 0.85 },
+  { name: 'Pune (पुणे)', lat: 18.5204, lng: 73.8567, minAlt: 0.3, maxAlt: 1.5, color: '#38BDF8', size: 0.85 },
+  { name: 'Surat (सुरत)', lat: 21.1702, lng: 72.8311, minAlt: 0.3, maxAlt: 1.5, color: '#38BDF8', size: 0.85 },
+  { name: 'Tokyo (東京)', lat: 35.6762, lng: 139.6503, minAlt: 0.3, maxAlt: 1.5, color: '#38BDF8', size: 0.85 },
+  { name: 'London', lat: 51.5074, lng: -0.1278, minAlt: 0.3, maxAlt: 1.5, color: '#38BDF8', size: 0.85 },
+  { name: 'New York', lat: 40.7128, lng: -74.0060, minAlt: 0.3, maxAlt: 1.5, color: '#38BDF8', size: 0.85 },
+
+  // LEVEL 3: NEIGHBORHOODS, BUILDINGS & STREET POIs (Close Altitude < 0.6)
+  { name: 'Wadala East (वडाळा ईस्ट)', lat: 19.0185, lng: 72.8580, minAlt: 0.0, maxAlt: 0.55, color: '#E2E8F0', size: 0.65 },
+  { name: 'BhoiWada (भोईवाडा)', lat: 19.0065, lng: 72.8465, minAlt: 0.0, maxAlt: 0.55, color: '#E2E8F0', size: 0.65 },
+  { name: 'Dadar (दादर)', lat: 19.0178, lng: 72.8478, minAlt: 0.0, maxAlt: 0.55, color: '#E2E8F0', size: 0.65 },
+  { name: '🏥 KEM Hospital (केईएम अस्पताल)', lat: 19.0025, lng: 72.8420, minAlt: 0.0, maxAlt: 0.45, color: '#F43F5E', size: 0.7 },
+  { name: '🏥 Tata Memorial Hospital', lat: 19.0040, lng: 72.8435, minAlt: 0.0, maxAlt: 0.45, color: '#F43F5E', size: 0.7 },
+  { name: '🌳 Shivaji Park', lat: 19.0268, lng: 72.8382, minAlt: 0.0, maxAlt: 0.45, color: '#10B981', size: 0.7 },
+  { name: 'Kidwai Nagar', lat: 19.0130, lng: 72.8530, minAlt: 0.0, maxAlt: 0.45, color: '#CBD5E1', size: 0.6 },
+  { name: '🏢 BPCL Complex', lat: 19.0110, lng: 72.8610, minAlt: 0.0, maxAlt: 0.45, color: '#A855F7', size: 0.65 },
+];
+
 function updateGlobeEntities() {
   if (!globe) return;
   const entities = getAllEntities();
+  const currentAlt = globe.pointOfView().altitude;
 
-  // Points (all entities)
+  // 1. Points (all entities)
   globe
     .pointsData(entities)
     .pointLat(d => d.lat)
@@ -219,7 +266,7 @@ function updateGlobeEntities() {
     .pointLabel(d => `${d.callsign || d.name}`)
     .pointResolution(8);
 
-  // Rings for curiosity entities (subtle, not blaring)
+  // 2. Rings for curiosity entities
   const curiosities = entities.filter(e => e.isCuriosity);
   globe
     .ringsData(curiosities)
@@ -230,7 +277,31 @@ function updateGlobeEntities() {
     .ringPropagationSpeed(0.7)
     .ringRepeatPeriod(3200);
 
-  // Trajectory arc for selected entity only
+  // 3. Dynamic Geographical Level of Detail (LOD) Labels
+  const visibleGeoLabels = GEOGRAPHIC_LOD_LABELS.filter(l => currentAlt >= l.minAlt && currentAlt <= l.maxAlt);
+  const allLabels = [...visibleGeoLabels];
+
+  if (selectedEntity) {
+    allLabels.push({
+      name: selectedEntity.callsign || selectedEntity.name,
+      lat: selectedEntity.lat,
+      lng: selectedEntity.lng,
+      color: '#4A9FFF',
+      size: 0.95
+    });
+  }
+
+  globe
+    .labelsData(allLabels)
+    .labelLat(d => d.lat)
+    .labelLng(d => d.lng)
+    .labelText(d => d.name)
+    .labelSize(d => d.size || 0.7)
+    .labelColor(d => d.color || '#E2E8F0')
+    .labelResolution(6)
+    .labelAltitude(0.015);
+
+  // 4. Trajectory arc for selected entity
   if (selectedEntity && selectedEntity.trajectory && selectedEntity.trajectory.length >= 2) {
     const traj = selectedEntity.trajectory;
     globe
@@ -249,26 +320,95 @@ function updateGlobeEntities() {
       .arcDashGap(0.15)
       .arcDashAnimateTime(2500)
       .arcAltitudeAutoScale(0.3);
-
-    // Custom trail — label at current position
-    globe
-      .labelsData([selectedEntity])
-      .labelLat(d => d.lat)
-      .labelLng(d => d.lng)
-      .labelText(d => d.callsign || d.name)
-      .labelSize(0.8)
-      .labelColor(() => '#4A9FFF')
-      .labelDotRadius(0.4)
-      .labelDotOrientation(() => 'bottom')
-      .labelAltitude(0.02);
   } else {
-    globe.arcsData([]).labelsData([]);
+    globe.arcsData([]);
   }
 
   // Entity count badge
   const curiosityCount = curiosities.length;
   $('entity-count-badge').querySelector('.entity-count-number').textContent = entities.length;
   $('curiosity-count').textContent = `${curiosityCount} curiosit${curiosityCount === 1 ? 'y' : 'ies'}`;
+}
+
+// ─── GOOGLE EARTH NAVIGATION & TELEMETRY CONTROLS ─────────────────────────────
+function setupGoogleEarthControls() {
+  if (!globe) return;
+
+  const updateHUD = () => {
+    const pov = globe.pointOfView();
+    if (!pov) return;
+
+    // 1. Camera altitude formatting (km or meters)
+    const altKm = Math.round(pov.altitude * 6371);
+    const altStr = altKm > 10 ? `Camera: ${altKm.toLocaleString()} km` : `Camera: ${Math.round(altKm * 1000).toLocaleString()} m`;
+    if ($('ge-camera-alt')) $('ge-camera-alt').textContent = altStr;
+
+    // 2. Latitude & Longitude formatting (DMS)
+    const formatDMS = (val, isLat) => {
+      const dir = isLat ? (val >= 0 ? 'N' : 'S') : (val >= 0 ? 'E' : 'W');
+      const abs = Math.abs(val);
+      const deg = Math.floor(abs);
+      const min = Math.floor((abs - deg) * 60);
+      const sec = Math.floor(((abs - deg) * 60 - min) * 60);
+      return `${deg}°${String(min).padStart(2,'0')}'${String(sec).padStart(2,'0')}"${dir}`;
+    };
+    if ($('ge-camera-coords')) $('ge-camera-coords').textContent = `${formatDMS(pov.lat, true)} ${formatDMS(pov.lng, false)}`;
+
+    // 3. Dynamic scale bar
+    let scaleTxt = '2,000 km';
+    let lineW = 60;
+    if (pov.altitude < 0.25) { scaleTxt = '500 m'; lineW = 35; }
+    else if (pov.altitude < 0.55) { scaleTxt = '50 km'; lineW = 45; }
+    else if (pov.altitude < 1.0) { scaleTxt = '500 km'; lineW = 50; }
+    else if (pov.altitude < 1.8) { scaleTxt = '1,000 km'; lineW = 55; }
+    if ($('ge-scale-label')) $('ge-scale-label').textContent = scaleTxt;
+    if ($('ge-scale-line')) $('ge-scale-line').style.width = lineW + 'px';
+
+    // 4. Update Level of Detail Labels
+    updateGlobeEntities();
+  };
+
+  globe.controls().addEventListener('change', updateHUD);
+  updateHUD();
+
+  // Navigation button handlers
+  const btnZoomIn = $('ge-btn-zoom-in');
+  if (btnZoomIn) {
+    btnZoomIn.addEventListener('click', () => {
+      const pov = globe.pointOfView();
+      globe.pointOfView({ altitude: Math.max(0.1, pov.altitude * 0.65) }, 500);
+    });
+  }
+
+  const btnZoomOut = $('ge-btn-zoom-out');
+  if (btnZoomOut) {
+    btnZoomOut.addEventListener('click', () => {
+      const pov = globe.pointOfView();
+      globe.pointOfView({ altitude: Math.min(4.5, pov.altitude * 1.45) }, 500);
+    });
+  }
+
+  let is3DTilted = false;
+  const btn3D = $('ge-btn-3d');
+  if (btn3D) {
+    btn3D.addEventListener('click', () => {
+      is3DTilted = !is3DTilted;
+      const controls = globe.controls();
+      if (is3DTilted) {
+        controls.maxPolarAngle = Math.PI / 2.2;
+        globe.pointOfView({ altitude: Math.min(1.2, globe.pointOfView().altitude) }, 800);
+      } else {
+        controls.maxPolarAngle = Math.PI;
+      }
+    });
+  }
+
+  const btnCompass = $('ge-btn-compass');
+  if (btnCompass) {
+    btnCompass.addEventListener('click', () => {
+      globe.pointOfView({ lat: globe.pointOfView().lat, lng: globe.pointOfView().lng }, 500);
+    });
+  }
 }
 
 // ─── AIRCRAFT MOVEMENT ────────────────────────────────────────────────────────

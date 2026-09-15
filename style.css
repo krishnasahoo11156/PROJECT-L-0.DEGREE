@@ -906,3 +906,39 @@ body.state-investigating #world-hud { pointer-events: none; }
 .place-card-name { font-weight: 500; color: var(--text-primary); }
 .place-card-cat { font-family: var(--font-data); font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
 
+/* ─── GOOGLE EARTH TELEMETRY & NAVIGATION HUD ────────────────────────── */
+.ge-hud-bottom-right {
+  position: absolute; bottom: 20px; right: 28px;
+  display: flex; align-items: center; gap: 16px;
+  z-index: 10; pointer-events: auto;
+  font-family: var(--font-data); font-size: 11px; color: var(--text-secondary);
+}
+.ge-scale-box {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.ge-scale-line {
+  height: 4px; border-left: 2px solid var(--text-primary); border-right: 2px solid var(--text-primary);
+  border-bottom: 2px solid var(--text-primary); width: 60px; transition: width 0.3s ease;
+}
+.ge-scale-label { font-size: 10px; color: var(--text-muted); }
+.ge-telemetry-box {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+  background: rgba(6,10,15,0.75); padding: 6px 12px; border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(8px);
+}
+.ge-camera-text { color: var(--text-primary); font-weight: 500; }
+.ge-coords-text { font-size: 10px; color: var(--accent); }
+.ge-control-buttons {
+  display: flex; align-items: center; gap: 4px;
+  background: rgba(6,10,15,0.75); padding: 4px; border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(8px);
+}
+.ge-btn {
+  width: 28px; height: 28px; border-radius: 50%; border: none;
+  background: transparent; color: var(--text-primary);
+  font-family: var(--font-data); font-size: 12px; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all var(--trans-fast);
+}
+.ge-btn:hover { background: rgba(255,255,255,0.15); color: var(--accent); }
+
