@@ -90,6 +90,32 @@ function formatTimestamp(ts) {
   return `${d.getDate()} ${d.toLocaleString('en',{month:'short'}).toUpperCase()} ${d.getFullYear()}  ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')} UTC`;
 }
 
+// ── Procedural cloud texture generator (0 network requests, 0 CORS errors) ─────
+function createProceduralCloudTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 1024, 512);
+
+  for (let i = 0; i < 350; i++) {
+    const x = Math.random() * 1024;
+    const y = (Math.random() * 0.8 + 0.1) * 512;
+    const radius = Math.random() * 65 + 25;
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    const alpha = Math.random() * 0.22 + 0.05;
+    grad.addColorStop(0, `rgba(255,255,255,${alpha})`);
+    grad.addColorStop(0.5, `rgba(240,248,255,${alpha * 0.4})`);
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  return new THREE.CanvasTexture(canvas);
+}
+
 // ─── GLOBE SETUP ─────────────────────────────────────────────────────────────
 function initGlobe() {
   const container = $('globe-container');
@@ -109,20 +135,16 @@ function initGlobe() {
   if (typeof THREE !== 'undefined') {
     const CLOUD_ALT  = 0.005;
     const CLOUD_SPIN = 0.004; // degrees/frame
-    new THREE.TextureLoader().load(
-      'https://unpkg.com/three-globe/example/img/clouds.png',
-      texture => {
-        const clouds = new THREE.Mesh(
-          new THREE.SphereGeometry(globe.getGlobeRadius() * (1 + CLOUD_ALT), 75, 75),
-          new THREE.MeshPhongMaterial({ map: texture, transparent: true, opacity: 0.82, depthWrite: false })
-        );
-        globe.scene().add(clouds);
-        (function spinClouds() {
-          clouds.rotation.y -= CLOUD_SPIN * (Math.PI / 180);
-          requestAnimationFrame(spinClouds);
-        })();
-      }
+    const texture = createProceduralCloudTexture();
+    const clouds = new THREE.Mesh(
+      new THREE.SphereGeometry(globe.getGlobeRadius() * (1 + CLOUD_ALT), 75, 75),
+      new THREE.MeshPhongMaterial({ map: texture, transparent: true, opacity: 0.85, depthWrite: false })
     );
+    globe.scene().add(clouds);
+    (function spinClouds() {
+      clouds.rotation.y -= CLOUD_SPIN * (Math.PI / 180);
+      requestAnimationFrame(spinClouds);
+    })();
   }
 
   // Controls
@@ -1074,14 +1096,16 @@ function deriveAirline(cs) {
 
 function detectLiveCuriosity(ac) {
   const cs = (ac.flight || '').trim().toUpperCase();
-  // Military / special-ops callsign patterns
-  if (/^(RCH|REACH|TUTOR|MOVER|DUKE|HAWK|GHOST|EAGLE|TALON|VALOR|ATLAS|RAVEN|IRON|FURY|VIPER|LYNX|BOXER|BLADE|DARK|GRIM|STING|KNIFE|SWORD)/.test(cs)) return true;
-  // Very high altitude (above commercial ceiling)
-  if (typeof ac.alt_baro === 'number' && ac.alt_baro > 50000) return true;
-  // Anomalously slow at cruise altitude
-  if (typeof ac.alt_baro === 'number' && typeof ac.gs === 'number' && ac.alt_baro > 25000 && ac.gs < 150) return true;
-  // Emergency / special squawk codes
-  if (ac.squawk === '7700' || ac.squawk === '7500' || ac.squawk === '7600') return true;
+  // 1. Military / tactical callsign patterns
+  if (/^(RCH|REACH|TUTOR|MOVER|DUKE|HAWK|GHOST|EAGLE|TALON|VALOR|ATLAS|RAVEN|IRON|FURY|VIPER|LYNX|BOXER|BLADE|DARK|GRIM|STING|KNIFE|SWORD|RFR|RRR|USAF|NAVY)/.test(cs)) return true;
+  // 2. High altitude (> 36,000 ft)
+  if (typeof ac.alt_baro === 'number' && ac.alt_baro > 36000) return true;
+  // 3. High speed (> 470 kts)
+  if (typeof ac.gs === 'number' && ac.gs > 470) return true;
+  // 4. Emergency / special squawk codes
+  if (ac.squawk === '7700' || ac.squawk === '7500' || ac.squawk === '7600' || ac.squawk === '7000') return true;
+  // 5. Long distance international transits
+  if (cs.length >= 6 && (cs.startsWith('UAE') || cs.startsWith('SIA') || cs.startsWith('QFA') || cs.startsWith('CPA') || cs.startsWith('ANA'))) return true;
   return false;
 }
 
@@ -1090,11 +1114,11 @@ function getLiveCuriosityNote(ac) {
   if (ac.squawk === '7700') return 'Squawking 7700 — Emergency declared';
   if (ac.squawk === '7500') return 'Squawking 7500 — Hijack code active';
   if (ac.squawk === '7600') return 'Squawking 7600 — Radio communication failure';
-  if (typeof ac.alt_baro === 'number' && ac.alt_baro > 50000)
-    return `Operating at FL${Math.round(ac.alt_baro / 100)} — above normal commercial ceiling`;
-  if (/^(RCH|REACH)/.test(cs)) return 'USAF tanker/airlift callsign detected';
-  if (typeof ac.gs === 'number' && typeof ac.alt_baro === 'number' && ac.alt_baro > 25000 && ac.gs < 150)
-    return `Anomalously slow groundspeed (${Math.round(ac.gs)} kts) at cruising altitude`;
+  if (typeof ac.alt_baro === 'number' && ac.alt_baro > 36000)
+    return `Cruising at high altitude FL${Math.round(ac.alt_baro / 100)} (${ac.alt_baro.toLocaleString()} ft)`;
+  if (typeof ac.gs === 'number' && ac.gs > 470)
+    return `High speed transit velocity (${Math.round(ac.gs)} kts)`;
+  if (/^(RCH|REACH|DUKE|VIPER)/.test(cs)) return 'Military / tactical transport callsign detected';
   return 'Unusual flight profile flagged by LOKṢA intelligence';
 }
 
@@ -1115,7 +1139,7 @@ function mapVatsimToEntity(p) {
   if (p.latitude == null || p.longitude == null) return null;
   const alt = typeof p.altitude === 'number' ? p.altitude : 0;
   const speed = typeof p.groundspeed === 'number' ? p.groundspeed : 0;
-  if (alt < 300 && speed < 30) return null; // Filter out stationary ground craft
+  if (alt < 300 && speed < 30) return null;
 
   const callsign = (p.callsign || '').trim();
   if (!callsign) return null;
@@ -1231,18 +1255,18 @@ function mapUsgsToEvent(feature) {
   const p        = feature.properties;
   const [lon, lat, depth] = feature.geometry.coordinates;
   const mag      = p.mag || 0;
-  const isCuriosity = mag >= 5.5;
+  const isCuriosity = mag >= 4.0;
   return {
     id: feature.id,
     type: 'earthquake',
     name: (p.title || `M${mag} Earthquake`).replace('M ', 'M').replace(' - ', ' — '),
     lat, lng: lon,
-    severity: mag >= 6.5 ? 'high' : mag >= 5.5 ? 'medium' : 'low',
+    severity: mag >= 6.0 ? 'high' : mag >= 4.5 ? 'medium' : 'low',
     magnitude: mag,
     depth: `${Math.round(depth || 0)} km`,
     timestamp: new Date(p.time).toISOString(),
     isCuriosity,
-    curiosityNote: isCuriosity ? `M${mag} — significant event, potential regional impact` : null,
+    curiosityNote: isCuriosity ? `M${mag} — active seismic event` : null,
     description: p.place || 'Location unknown',
   };
 }
