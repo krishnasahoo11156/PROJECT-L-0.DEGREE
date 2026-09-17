@@ -1413,7 +1413,162 @@ async function searchGeoapifyLocation(query) {
   return null;
 }
 
-// ─── GEOAPIFY STREET INTEL MODAL CONTROLS ─────────────────────────────────
+// ─── LEAFLET REALISTIC & INTERACTIVE STREET INTEL CONTROLS ─────────────────
+let leafletStreetMap = null;
+let leafletTargetMarker = null;
+let leafletTileLayers = {};
+let activeLeafletLayerKey = 'satellite';
+let currentStreetTargetCoords = null;
+
+function initLeafletStreetMap(lat, lng, entity) {
+  currentStreetTargetCoords = { lat, lng, entity };
+  const mapFrame = $('street-map-frame');
+  if (!mapFrame) return;
+
+  // Cleanup existing Leaflet map instance if present
+  if (leafletStreetMap) {
+    leafletStreetMap.remove();
+    leafletStreetMap = null;
+  }
+
+  // Ensure container element exists
+  let mapContainer = document.getElementById('leaflet-street-map');
+  if (!mapContainer) {
+    mapContainer = document.createElement('div');
+    mapContainer.id = 'leaflet-street-map';
+    mapContainer.className = 'leaflet-map-container';
+    mapFrame.appendChild(mapContainer);
+  }
+
+  // Initialize Leaflet map centered at target coordinates
+  leafletStreetMap = L.map(mapContainer, {
+    center: [lat, lng],
+    zoom: 16,
+    zoomControl: false,
+    attributionControl: false
+  });
+
+  // 1. High-Resolution Satellite Imagery (Esri World Imagery) - Realistic photographic view!
+  const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19,
+    subdomains: ['a', 'b', 'c']
+  });
+
+  // 2. Vibrant Street Map (Esri World Street Map) - Real-world streets, buildings, landmarks
+  const streetLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19
+  });
+
+  // 3. Tactical Dark (CartoDB Dark Matter)
+  const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19
+  });
+
+  leafletTileLayers = {
+    satellite: satelliteLayer,
+    streets: streetLayer,
+    dark: darkLayer
+  };
+
+  // Add default layer (Real Satellite View)
+  leafletTileLayers[activeLeafletLayerKey].addTo(leafletStreetMap);
+
+  // Add custom pulsing beacon marker at target position
+  const customIcon = L.divIcon({
+    className: 'custom-leaflet-marker',
+    html: `<div class="leaflet-beacon"><div class="beacon-core"></div><div class="beacon-ring"></div></div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12]
+  });
+
+  leafletTargetMarker = L.marker([lat, lng], { icon: customIcon }).addTo(leafletStreetMap);
+
+  const entityTitle = entity.callsign || entity.title || entity.name || 'Target Location';
+  const categoryTag = entity.category || entity.type || 'LIVE INTEL';
+  const summaryText = entity.summary || entity.notes || entity.location || 'High-precision micro-intel scan';
+
+  const popupContent = `
+    <div class="leaflet-intel-popup">
+      <div class="popup-tag">${categoryTag}</div>
+      <div class="popup-title">${entityTitle}</div>
+      <div class="popup-coords">${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E</div>
+      <div class="popup-desc">${summaryText}</div>
+    </div>
+  `;
+
+  leafletTargetMarker.bindPopup(popupContent, { offset: [0, -10] }).openPopup();
+
+  // Telemetry updates on pan/zoom
+  const updateTelemetry = () => {
+    if (!leafletStreetMap) return;
+    const center = leafletStreetMap.getCenter();
+    const zoom = leafletStreetMap.getZoom();
+    const centerEl = $('street-center-coords');
+    if (centerEl) {
+      centerEl.textContent = `Center: ${center.lat.toFixed(4)}°N, ${center.lng.toFixed(4)}°E | Zoom: ${zoom}x`;
+    }
+  };
+  leafletStreetMap.on('move', updateTelemetry);
+  leafletStreetMap.on('zoomend', updateTelemetry);
+  updateTelemetry();
+
+  // Allow clicking anywhere on map to inspect surrounding points & geocode them
+  let tempInspectMarker = null;
+  leafletStreetMap.on('click', async (e) => {
+    const cLat = e.latlng.lat;
+    const cLng = e.latlng.lng;
+
+    if (tempInspectMarker) {
+      leafletStreetMap.removeLayer(tempInspectMarker);
+    }
+
+    tempInspectMarker = L.circleMarker([cLat, cLng], {
+      radius: 6,
+      color: '#3ecfaa',
+      fillColor: '#3ecfaa',
+      fillOpacity: 0.85
+    }).addTo(leafletStreetMap);
+
+    tempInspectMarker.bindPopup(`
+      <div class="leaflet-intel-popup">
+        <div class="popup-tag" style="color: var(--success);">INSPECTING POINT</div>
+        <div class="popup-coords">${cLat.toFixed(4)}°N, ${cLng.toFixed(4)}°E</div>
+        <div class="popup-desc">Resolving street address…</div>
+      </div>
+    `, { offset: [0, -5] }).openPopup();
+
+    const clickedAddr = await fetchReverseGeocode(cLat, cLng);
+    if (tempInspectMarker) {
+      tempInspectMarker.getPopup().setContent(`
+        <div class="leaflet-intel-popup">
+          <div class="popup-tag" style="color: var(--success);">INSPECTED POINT</div>
+          <div class="popup-coords">${cLat.toFixed(4)}°N, ${cLng.toFixed(4)}°E</div>
+          <div class="popup-desc">${clickedAddr || 'Local Geographic Feature'}</div>
+        </div>
+      `);
+    }
+  });
+
+  // Force map container layout recalculation after transition
+  setTimeout(() => {
+    if (leafletStreetMap) {
+      leafletStreetMap.invalidateSize();
+    }
+  }, 200);
+}
+
+// Layer switcher helper
+function setLeafletLayer(layerKey) {
+  if (!leafletStreetMap || !leafletTileLayers[layerKey]) return;
+  activeLeafletLayerKey = layerKey;
+  Object.values(leafletTileLayers).forEach(l => leafletStreetMap.removeLayer(l));
+  leafletTileLayers[layerKey].addTo(leafletStreetMap);
+
+  document.querySelectorAll('.street-layer-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.layer === layerKey);
+  });
+}
+
 const btnStreet = $('btn-street-intel');
 const modalStreet = $('modal-street-intel');
 const btnCloseStreet = $('btn-close-street');
@@ -1424,20 +1579,56 @@ if (btnStreet) {
     const { lat, lng } = selectedEntity;
     modalStreet.classList.remove('hidden');
     $('street-loc-coords').textContent = fmt.coords(lat, lng);
-    $('street-loc-name').textContent = 'Loading location intelligence…';
+    $('street-loc-name').textContent = 'Resolving location intelligence…';
 
     const addr = await fetchReverseGeocode(lat, lng);
-    $('street-loc-name').textContent = addr || (selectedEntity.callsign || selectedEntity.name);
+    $('street-loc-name').textContent = addr || (selectedEntity.callsign || selectedEntity.name || selectedEntity.title);
 
-    // Render high-res Geoapify static street map with building & road detail using dedicated key
-    const mapUrl = `https://maps.geoapify.com/v1/staticmap?style=dark-matter&width=820&height=480&center=lonlat:${lng},${lat}&zoom=14&marker=lonlat:${lng},${lat};color:%234a9fff;size:medium&apiKey=${GEOAPIFY_STATIC_MAP_KEY}`;
-    $('street-map-frame').innerHTML = `<img src="${mapUrl}" alt="Geoapify Street Intel" style="width:100%;height:100%;object-fit:cover;" />`;
+    const infoEl = $('street-surrounding-info');
+    if (infoEl) {
+      infoEl.textContent = `Target: ${selectedEntity.callsign || selectedEntity.title || 'Entity'} (${selectedEntity.region || 'Local area'}). Navigable high-resolution satellite imagery loaded.`;
+    }
+
+    // Initialize Leaflet Interactive Map
+    initLeafletStreetMap(lat, lng, selectedEntity);
   });
 }
 
 if (btnCloseStreet) {
   btnCloseStreet.addEventListener('click', () => {
     modalStreet.classList.add('hidden');
+  });
+}
+
+// Layer selector buttons
+document.querySelectorAll('.street-layer-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    setLeafletLayer(btn.dataset.layer);
+  });
+});
+
+// Map controls
+const btnRecenter = $('btn-street-recenter');
+if (btnRecenter) {
+  btnRecenter.addEventListener('click', () => {
+    if (leafletStreetMap && currentStreetTargetCoords) {
+      leafletStreetMap.flyTo([currentStreetTargetCoords.lat, currentStreetTargetCoords.lng], 16, { duration: 1.2 });
+      if (leafletTargetMarker) leafletTargetMarker.openPopup();
+    }
+  });
+}
+
+const btnZoomIn = $('btn-street-zoomin');
+if (btnZoomIn) {
+  btnZoomIn.addEventListener('click', () => {
+    if (leafletStreetMap) leafletStreetMap.zoomIn();
+  });
+}
+
+const btnZoomOut = $('btn-street-zoomout');
+if (btnZoomOut) {
+  btnZoomOut.addEventListener('click', () => {
+    if (leafletStreetMap) leafletStreetMap.zoomOut();
   });
 }
 

@@ -6,6 +6,8 @@
   <title>LOKṢA — Living Atlas</title>
   <meta name="description" content="An interactive exploration game. The real world, alive and waiting to be discovered.">
   <link rel="stylesheet" href="style.css">
+  <!-- Leaflet interactive map library CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
 
@@ -220,22 +222,65 @@
   </div>
 
   <!-- ═══════════════════════════════════════════════════════════════════
-       GEOAPIFY STREET INTEL MODAL (Micro-Level Street & Building Detail View)
+       INTERACTIVE HIGH-RESOLUTION SATELLITE & STREET INTEL MODAL
   ════════════════════════════════════════════════════════════════════ -->
   <div id="modal-street-intel" class="modal-street-intel hidden">
     <div class="street-intel-content">
+      <!-- Header -->
       <div class="street-intel-header">
         <div class="street-intel-title">
-          <span class="street-icon">👁</span> HIGH-RESOLUTION LOCAL STREET INTEL
+          <span class="street-icon">👁</span> REAL-TIME TACTICAL & SATELLITE STREET INTEL
+          <span class="street-live-badge">REAL-WORLD VIEW</span>
         </div>
-        <button class="street-intel-close" id="btn-close-street">✕</button>
+        <button class="street-intel-close" id="btn-close-street" title="Close modal">✕</button>
       </div>
-      <div class="street-intel-meta">
-        <span id="street-loc-name">Resolving location…</span>
-        <span id="street-loc-coords" class="street-coords"></span>
+
+      <!-- Control Toolbar & Layer Switcher -->
+      <div class="street-intel-toolbar">
+        <div class="street-intel-meta">
+          <span id="street-loc-name" class="street-loc-name">Resolving location intelligence…</span>
+          <span id="street-loc-coords" class="street-coords"></span>
+        </div>
+        <div class="street-layer-selector">
+          <button class="street-layer-btn active" data-layer="satellite" id="btn-layer-sat">
+            <span>🛰️</span> Real Satellite
+          </button>
+          <button class="street-layer-btn" data-layer="streets" id="btn-layer-streets">
+            <span>🗺️</span> Vibrant Map
+          </button>
+          <button class="street-layer-btn" data-layer="dark" id="btn-layer-dark">
+            <span>🌙</span> Tactical Dark
+          </button>
+        </div>
       </div>
+
+      <!-- Main Interactive Navigable Map View -->
       <div class="street-map-frame" id="street-map-frame">
-        <!-- Render high-res Geoapify street & building tile map preview -->
+        <div id="leaflet-street-map" class="leaflet-map-container"></div>
+        
+        <!-- On-map Floating Navigation Controls -->
+        <div class="street-hud-overlay">
+          <div class="street-hud-badge" id="street-telemetry-badge">
+            <span class="hud-pulse-dot"></span>
+            <span id="street-center-coords">Center: Locked to target</span>
+          </div>
+          <div class="street-map-controls">
+            <button class="hud-ctrl-btn" id="btn-street-recenter" title="Recenter on Target">🎯 Target</button>
+            <button class="hud-ctrl-btn" id="btn-street-zoomin" title="Zoom In">➕</button>
+            <button class="hud-ctrl-btn" id="btn-street-zoomout" title="Zoom Out">➖</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Surrounding Intelligence & Neighborhood Footer -->
+      <div class="street-intel-footer">
+        <div class="intel-footer-left">
+          <span class="footer-label">SURROUNDING ENVIRONMENT INTEL:</span>
+          <span class="footer-info" id="street-surrounding-info">Interactive 360° pan & zoom enabled. Click anywhere on map to inspect points.</span>
+        </div>
+        <div class="intel-footer-right">
+          <span class="hint-tag">💡 DRAG & SCROLL TO NAVIGATE SURROUNDINGS</span>
+        </div>
       </div>
     </div>
   </div>
@@ -474,6 +519,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <!-- Globe.gl — 3D globe visualization -->
   <script src="https://unpkg.com/globe.gl@2.27.0/dist/globe.gl.min.js"></script>
+  <!-- Leaflet interactive map library -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <!-- App (ES module) -->
   <script type="module" src="app.js"></script>
 
