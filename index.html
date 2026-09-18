@@ -71,6 +71,10 @@
         <span class="entity-count-dot">entities</span>
         <span class="curiosity-badge" id="curiosity-count">4 curiosities</span>
       </div>
+      <button class="btn-route-planner" id="btn-open-route-planner" title="Open Safe Route & Calamity Navigator">
+        <span class="btn-atlas-icon">⤁</span>
+        <span class="btn-atlas-text">ROUTE NAVIGATOR</span>
+      </button>
       <button class="btn-atlas" id="btn-open-atlas" title="Open My Atlas">
         <span class="btn-atlas-icon">◈</span>
         <span class="btn-atlas-text">MY ATLAS</span>
@@ -242,6 +246,162 @@
       <button class="btn-action btn-save" id="btn-save-insp">
         <span class="btn-icon">◈</span>SAVE
       </button>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       SAFE ROUTE & CALAMITY NAVIGATOR PANEL (slides in from left)
+  ════════════════════════════════════════════════════════════════════ -->
+  <div id="panel-route-planner" class="panel-route-planner hidden" role="complementary" aria-label="Route Planner & Calamity Navigator">
+
+    <div class="panel-header">
+      <div class="panel-header-left">
+        <div class="panel-entity-type">NAVIGATION & RISK ENGINE</div>
+        <div class="panel-callsign">SAFE ROUTE NAVIGATOR</div>
+      </div>
+      <button class="panel-close" id="route-planner-close" aria-label="Close route planner">✕</button>
+    </div>
+
+    <div class="route-planner-body">
+
+      <!-- Waypoint selection inputs -->
+      <div class="panel-section">
+        <div class="section-label">WAYPOINTS</div>
+        
+        <!-- Start Point -->
+        <div class="route-input-group">
+          <div class="route-input-header">
+            <span class="route-pin-dot origin"></span>
+            <span class="route-label">START LOCATION</span>
+            <div class="route-btn-row">
+              <button class="btn-pick-map" id="btn-pick-start" title="Click on map to select start">PICK ON MAP</button>
+              <button class="btn-pick-map" id="btn-my-location" title="Use current location">MY LOCATION</button>
+            </div>
+          </div>
+          <div class="route-input-wrapper">
+            <input type="text" id="route-start-input" class="route-input" placeholder="Search start location..." autocomplete="off">
+            <div id="route-start-results" class="route-autocomplete-dropdown hidden"></div>
+          </div>
+        </div>
+
+        <!-- Destination Point -->
+        <div class="route-input-group">
+          <div class="route-input-header">
+            <span class="route-pin-dot destination"></span>
+            <span class="route-label">END LOCATION</span>
+            <div class="route-btn-row">
+              <button class="btn-pick-map" id="btn-pick-end" title="Click on map to select destination">PICK ON MAP</button>
+            </div>
+          </div>
+          <div class="route-input-wrapper">
+            <input type="text" id="route-end-input" class="route-input" placeholder="Search destination..." autocomplete="off">
+            <div id="route-end-results" class="route-autocomplete-dropdown hidden"></div>
+          </div>
+        </div>
+
+        <button class="btn-swap-waypoints" id="btn-swap-waypoints" title="Swap Start and Destination">⇅ SWAP LOCATIONS</button>
+      </div>
+
+      <!-- Mode of Transportation -->
+      <div class="panel-section">
+        <div class="section-label">TRANSPORTATION MODE</div>
+        <div class="route-mode-grid" id="route-mode-selector">
+          <button class="route-mode-btn active" data-mode="drive">
+            <span class="mode-text">Drive</span>
+          </button>
+          <button class="route-mode-btn" data-mode="walk">
+            <span class="mode-text">Walk</span>
+          </button>
+          <button class="route-mode-btn" data-mode="bicycle">
+            <span class="mode-text">Bicycle</span>
+          </button>
+          <button class="route-mode-btn" data-mode="transit">
+            <span class="mode-text">Transit</span>
+          </button>
+          <button class="route-mode-btn" data-mode="motorcycle">
+            <span class="mode-text">Motorcycle</span>
+          </button>
+          <button class="route-mode-btn" data-mode="truck">
+            <span class="mode-text">Truck</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Route Strategy -->
+      <div class="panel-section">
+        <div class="section-label">ROUTING STRATEGY</div>
+        <div class="strategy-options">
+          <label class="strategy-radio">
+            <input type="radio" name="route-strategy" value="balanced" checked>
+            <span>Safest (Calamity & Traffic Risk Avoidance)</span>
+          </label>
+          <label class="strategy-radio">
+            <input type="radio" name="route-strategy" value="short">
+            <span>Fastest Direct Path</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Calculate Action -->
+      <button class="btn-action-full btn-calculate-route" id="btn-calculate-route">
+        CALCULATE ROUTE
+      </button>
+
+      <!-- Status / Notification Message -->
+      <div id="route-status-msg" class="route-status-msg hidden"></div>
+
+      <!-- Results Container (shown after calculation) -->
+      <div id="route-results-container" class="route-results-container hidden">
+
+        <!-- Metrics Overview Grid -->
+        <div class="panel-section">
+          <div class="section-label">ROUTE METRICS</div>
+          <div class="data-grid route-metrics-grid">
+            <div class="data-item">
+              <div class="data-label">DISTANCE</div>
+              <div class="data-value" id="route-val-dist">—</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">TIME</div>
+              <div class="data-value" id="route-val-time">—</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">CALAMITY RISK</div>
+              <div class="data-value" id="route-val-risk">—</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">TRAFFIC INDEX</div>
+              <div class="data-value" id="route-val-traffic">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Calamity & Traffic Hazard Assessment Card -->
+        <div class="panel-section">
+          <div class="section-label">ENVIRONMENTAL & DISASTER INTEL</div>
+          <div class="calamity-risk-card" id="calamity-risk-card">
+            <div class="risk-card-header">
+              <span class="risk-indicator-dot" id="risk-card-dot"></span>
+              <span class="risk-card-title" id="risk-card-title">Clear Corridor</span>
+            </div>
+            <div class="risk-card-desc" id="risk-card-desc">No active natural calamities or major disruptions along route geometry.</div>
+            <div class="risk-card-details" id="risk-card-details"></div>
+          </div>
+        </div>
+
+        <!-- Turn-by-Turn Directions -->
+        <div class="panel-section">
+          <div class="section-label">TURN-BY-TURN DIRECTIONS</div>
+          <div class="turn-steps-list" id="turn-steps-list"></div>
+        </div>
+
+        <button class="btn-action-full btn-clear-route" id="btn-clear-route">
+          CLEAR ROUTE
+        </button>
+
+      </div>
+
     </div>
 
   </div>

@@ -1177,3 +1177,195 @@ body.state-investigating #world-hud { pointer-events: none; }
 .ge-dpad-btn:hover { background: rgba(74,159,255,0.25); color: var(--accent); transform: scale(1.1); }
 .ge-dpad-center { font-size: 12px; }
 
+/* ─── ROUTE PLANNER & CALAMITY NAVIGATOR PANEL ─────────────────────────── */
+.btn-route-planner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px;
+  background: rgba(13,21,32,0.85);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  color: var(--accent);
+  font-family: var(--font-data);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 0 12px var(--accent-dim);
+  transition: all var(--trans);
+  cursor: pointer;
+}
+.btn-route-planner:hover {
+  background: var(--accent);
+  color: #000;
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.panel-route-planner {
+  position: fixed; top: 0; left: 0; bottom: 0;
+  width: 420px; max-width: 90vw;
+  background: rgba(8,14,23,0.94);
+  border-right: 1px solid var(--border);
+  backdrop-filter: blur(20px);
+  z-index: 100;
+  display: flex; flex-direction: column;
+  box-shadow: 10px 0 30px rgba(0,0,0,0.6);
+  transition: transform var(--trans);
+  transform: translateX(0);
+}
+.panel-route-planner.hidden {
+  transform: translateX(-100%);
+  pointer-events: none;
+}
+
+.route-planner-body {
+  flex: 1; overflow-y: auto; padding: 18px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+
+.route-input-group {
+  display: flex; flex-direction: column; gap: 6px;
+  margin-bottom: 10px;
+}
+.route-input-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+}
+.route-pin-dot {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+}
+.route-pin-dot.origin { background: #3ECFAA; box-shadow: 0 0 8px #3ECFAA; }
+.route-pin-dot.destination { background: #E05555; box-shadow: 0 0 8px #E05555; }
+
+.route-label {
+  font-family: var(--font-data); font-size: 10px; letter-spacing: 0.1em;
+  color: var(--text-secondary); flex: 1;
+}
+.route-btn-row { display: flex; gap: 4px; }
+.btn-pick-map {
+  font-family: var(--font-data); font-size: 9px; letter-spacing: 0.05em;
+  padding: 3px 6px; border: 1px solid var(--border-light);
+  border-radius: 3px; background: rgba(255,255,255,0.04);
+  color: var(--text-secondary); cursor: pointer; transition: all var(--trans-fast);
+}
+.btn-pick-map:hover, .btn-pick-map.active {
+  background: var(--accent-dim); border-color: var(--accent); color: var(--accent);
+}
+
+.route-input-wrapper { position: relative; width: 100%; }
+.route-input {
+  width: 100%; padding: 10px 12px;
+  background: rgba(13,21,32,0.9); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text-primary);
+  font-family: var(--font-body); font-size: 12px; outline: none;
+  transition: border-color var(--trans-fast);
+}
+.route-input:focus { border-color: var(--accent); }
+
+.route-autocomplete-dropdown {
+  position: absolute; top: 100%; left: 0; right: 0;
+  background: #0D1520; border: 1px solid var(--border-light);
+  border-radius: var(--radius); margin-top: 4px; z-index: 200;
+  max-height: 200px; overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+}
+.route-autocomplete-dropdown.hidden { display: none; }
+.route-autocomplete-item {
+  padding: 8px 12px; font-size: 11px; color: var(--text-primary);
+  cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.04);
+  transition: background var(--trans-fast);
+}
+.route-autocomplete-item:hover { background: var(--accent-dim); color: var(--accent); }
+
+.btn-swap-waypoints {
+  width: 100%; padding: 6px; font-family: var(--font-data); font-size: 10px;
+  color: var(--text-secondary); border: 1px dashed var(--border);
+  border-radius: var(--radius); cursor: pointer; transition: all var(--trans-fast);
+  text-align: center; margin-top: 4px;
+}
+.btn-swap-waypoints:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+.route-mode-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+}
+.route-mode-btn {
+  padding: 8px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: rgba(13,21,32,0.7);
+  color: var(--text-secondary); font-family: var(--font-data);
+  font-size: 11px; cursor: pointer; text-align: center;
+  transition: all var(--trans-fast);
+}
+.route-mode-btn:hover { border-color: var(--border-light); color: var(--text-primary); }
+.route-mode-btn.active {
+  background: var(--accent-dim); border-color: var(--accent);
+  color: var(--accent); font-weight: 600;
+}
+
+.strategy-options { display: flex; flex-direction: column; gap: 6px; }
+.strategy-radio {
+  display: flex; align-items: center; gap: 8px; font-size: 11px;
+  color: var(--text-primary); cursor: pointer;
+}
+
+.btn-calculate-route {
+  margin-top: 8px; background: var(--accent); color: #060A0F;
+  font-weight: 700; border-radius: var(--radius); padding: 12px;
+  letter-spacing: 0.08em; transition: all var(--trans);
+}
+.btn-calculate-route:hover {
+  background: #60A8FF; box-shadow: 0 0 16px var(--accent-glow);
+}
+
+.btn-clear-route {
+  margin-top: 12px; background: transparent; color: var(--alert);
+  border: 1px solid var(--alert); font-weight: 600; padding: 10px;
+}
+.btn-clear-route:hover { background: rgba(224,85,85,0.15); }
+
+.route-status-msg {
+  padding: 10px; font-family: var(--font-data); font-size: 11px;
+  border-radius: var(--radius); background: rgba(74,159,255,0.1);
+  border: 1px solid var(--border); color: var(--accent);
+}
+.route-status-msg.hidden { display: none; }
+.route-status-msg.error { background: rgba(224,85,85,0.1); border-color: var(--alert); color: var(--alert); }
+
+.route-results-container.hidden { display: none; }
+
+.calamity-risk-card {
+  padding: 12px; border-radius: var(--radius);
+  background: rgba(13,21,32,0.8); border: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.calamity-risk-card.clear { border-color: var(--success); }
+.calamity-risk-card.caution { border-color: var(--curiosity); }
+.calamity-risk-card.danger { border-color: var(--alert); }
+
+.risk-card-header { display: flex; align-items: center; gap: 8px; }
+.risk-indicator-dot { width: 10px; height: 10px; border-radius: 50%; }
+.clear .risk-indicator-dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
+.caution .risk-indicator-dot { background: var(--curiosity); box-shadow: 0 0 8px var(--curiosity); }
+.danger .risk-indicator-dot { background: var(--alert); box-shadow: 0 0 8px var(--alert); }
+
+.risk-card-title { font-family: var(--font-data); font-size: 12px; font-weight: 700; }
+.risk-card-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.4; }
+.risk-card-details { font-family: var(--font-data); font-size: 10px; color: var(--text-muted); margin-top: 4px; }
+
+.turn-steps-list {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 220px; overflow-y: auto;
+}
+.turn-step-item {
+  padding: 8px 10px; border-radius: 4px;
+  background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05);
+  font-size: 11px; display: flex; justify-content: space-between; align-items: center;
+  cursor: pointer; transition: background var(--trans-fast);
+}
+.turn-step-item:hover { background: var(--accent-dim); border-color: var(--border-light); }
+.turn-step-text { color: var(--text-primary); flex: 1; padding-right: 8px; }
+.turn-step-dist { font-family: var(--font-data); font-size: 10px; color: var(--text-secondary); white-space: nowrap; }
+
+.leaflet-route-pin {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid #FFF; box-shadow: 0 0 10px rgba(0,0,0,0.8);
+}
+.leaflet-route-pin.start { background: #3ECFAA; }
+.leaflet-route-pin.end { background: #E05555; }
+
+

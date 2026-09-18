@@ -8,7 +8,7 @@ let LIVE_AIRCRAFT = null;   // null = not yet loaded; populated by loadLiveData(
 let LIVE_EVENTS   = null;
 let liveStatusEl  = null;
 
-const GEOAPIFY_API_KEY = 'e1a884017e1e47f49067bf68695aed76';
+const GEOAPIFY_API_KEY = '0dbc443d8ae34c3ba597d8ae5b704db2';
 const GEOAPIFY_STATIC_MAP_KEY = '0dbc443d8ae34c3ba597d8ae5b704db2';
 
 const AIRLINE_LOOKUP = {
@@ -234,6 +234,10 @@ function initMainLeafletMap() {
 
   // Click anywhere on main street map to inspect location & street address
   mainLeafletMap.on('click', async (e) => {
+    if (routeState.pickingMode) {
+      handleMapPickClick(e);
+      return;
+    }
     const { lat, lng } = e.latlng;
     if (mainStreetInspectMarker) mainLeafletMap.removeLayer(mainStreetInspectMarker);
 
@@ -1618,6 +1622,553 @@ async function searchGeoapifyLocation(query) {
   return null;
 }
 
+// ─── GEOAPIFY ROUTE PLANNER & CALAMITY NAVIGATOR ────────────────────────────
+let routeState = {
+  startLocation: null,
+  endLocation: null,
+  mode: 'drive',
+  strategy: 'balanced',
+  pickingMode: null,
+  currentRoute: null,
+  leafletLayers: [],
+  autocompleteTimers: { startLocation: null, endLocation: null }
+};
+
+function openRoutePlanner() {
+  const panel = document.getElementById('panel-route-planner');
+  if (panel) {
+    panel.classList.remove('hidden');
+    if (activeMainView === 'globe') {
+      setMainViewMode('streets');
+    }
+  }
+}
+
+function closeRoutePlanner() {
+  const panel = document.getElementById('panel-route-planner');
+  if (panel) panel.classList.add('hidden');
+  resetMapPickingMode();
+}
+
+function resetMapPickingMode() {
+  routeState.pickingMode = null;
+  document.getElementById('btn-pick-start')?.classList.remove('active');
+  document.getElementById('btn-pick-end')?.classList.remove('active');
+  if (mainLeafletMap && mainLeafletMap._container) {
+    mainLeafletMap._container.style.cursor = '';
+  }
+}
+
+function getHaversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+async function fetchGeoapifyRoute(start, end, mode) {
+  const modeMap = {
+    drive: 'drive',
+    walk: 'walk',
+    bicycle: 'bicycle',
+    transit: 'approximated_transit',
+    motorcycle: 'motorcycle',
+    truck: 'heavy_vehicle'
+  };
+  const geoMode = modeMap[mode] || 'drive';
+  const url = `https://api.geoapify.com/v1/routing?waypoints=${start.lat},${start.lng}|${end.lat},${end.lng}&mode=${geoMode}&details=instruction_details,elevation&apiKey=${GEOAPIFY_API_KEY}`;
+  
+  const res = await fetch(url);
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.message || `Geoapify Routing API HTTP error (${res.status})`);
+  }
+  return await res.json();
+}
+
+function analyzeRouteCalamitiesAndTraffic(routeGeometryCoords, routeDistanceKm, routeTimeMinutes) {
+  const allEvents = (LIVE_EVENTS && LIVE_EVENTS.length > 0) ? LIVE_EVENTS : EVENTS;
+  
+  let minDistanceKm = Infinity;
+  let nearestEvent = null;
+  let detectedHazards = [];
+
+  const sampleStep = Math.max(1, Math.floor(routeGeometryCoords.length / 100));
+  
+  allEvents.forEach(evt => {
+    if (typeof evt.lat !== 'number' || typeof evt.lng !== 'number') return;
+    
+    for (let i = 0; i < routeGeometryCoords.length; i += sampleStep) {
+      const pt = routeGeometryCoords[i];
+      const dist = getHaversineDistance(pt[1], pt[0], evt.lat, evt.lng);
+      
+      if (dist < minDistanceKm) {
+        minDistanceKm = dist;
+        nearestEvent = evt;
+      }
+
+      if (dist < 40) {
+        if (!detectedHazards.find(h => h.id === evt.id)) {
+          detectedHazards.push({
+            id: evt.id,
+            name: evt.name || evt.type || 'Natural Event',
+            type: evt.type || 'disaster',
+            distanceKm: Math.round(dist * 10) / 10,
+            severity: evt.severity || 'medium'
+          });
+        }
+      }
+    }
+  });
+
+  let riskLevel = 'clear';
+  let title = 'Clear Route Corridor';
+  let description = 'No active natural calamities or severe disruptions detected along route geometry.';
+
+  if (detectedHazards.length > 0) {
+    const dangerHazards = detectedHazards.filter(h => h.distanceKm <= 15 || h.severity === 'high');
+    if (dangerHazards.length > 0) {
+      riskLevel = 'danger';
+      const primary = dangerHazards[0];
+      title = `HIGH HAZARD: ${primary.name.toUpperCase()}`;
+      description = `Route passes within ${primary.distanceKm} km of active ${primary.type} (${primary.name}). High risk of road closures or extreme weather conditions.`;
+    } else {
+      riskLevel = 'caution';
+      const primary = detectedHazards[0];
+      title = `ADVISORY: NEARBY ${primary.type.toUpperCase()}`;
+      description = `Active ${primary.type} detected ${primary.distanceKm} km from route corridor (${primary.name}).`;
+    }
+  }
+
+  let trafficIndex = 'LIGHT';
+  if (routeDistanceKm > 0 && routeTimeMinutes > 0) {
+    const avgSpeedKmH = (routeDistanceKm / (routeTimeMinutes / 60));
+    if (routeState.mode === 'drive' && avgSpeedKmH < 30) {
+      trafficIndex = 'HEAVY CONGESTION';
+    } else if (routeState.mode === 'drive' && avgSpeedKmH < 50) {
+      trafficIndex = 'MODERATE TRAFFIC';
+    }
+  }
+
+  return {
+    riskLevel,
+    title,
+    description,
+    detectedHazards,
+    trafficIndex
+  };
+}
+
+function renderRouteOnMap(geoJson, riskAssessment) {
+  if (!mainLeafletMap) return;
+
+  clearRouteFromMap();
+
+  const feature = geoJson.features && geoJson.features[0];
+  if (!feature || !feature.geometry) return;
+
+  let polylineColor = '#3ECFAA';
+  if (riskAssessment.riskLevel === 'caution') polylineColor = '#E8A838';
+  if (riskAssessment.riskLevel === 'danger') polylineColor = '#E05555';
+
+  const coordinates = feature.geometry.coordinates;
+  let latLngs = [];
+
+  if (feature.geometry.type === 'LineString') {
+    latLngs = coordinates.map(c => [c[1], c[0]]);
+  } else if (feature.geometry.type === 'MultiLineString') {
+    coordinates.forEach(line => {
+      line.forEach(c => latLngs.push([c[1], c[0]]));
+    });
+  }
+
+  if (latLngs.length === 0) return;
+
+  const glowPolyline = L.polyline(latLngs, {
+    color: polylineColor,
+    weight: 8,
+    opacity: 0.35
+  }).addTo(mainLeafletMap);
+  routeState.leafletLayers.push(glowPolyline);
+
+  const mainPolyline = L.polyline(latLngs, {
+    color: polylineColor,
+    weight: 4,
+    opacity: 0.9,
+    lineCap: 'round',
+    lineJoin: 'round'
+  }).addTo(mainLeafletMap);
+  routeState.leafletLayers.push(mainPolyline);
+
+  const startPt = latLngs[0];
+  const startIcon = L.divIcon({
+    className: 'custom-route-marker',
+    html: `<div class="leaflet-route-pin start" title="Start: ${routeState.startLocation.name}"></div>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  });
+  const startMarker = L.marker(startPt, { icon: startIcon }).addTo(mainLeafletMap);
+  startMarker.bindPopup(`<b>Start Location</b><br>${routeState.startLocation.name}`);
+  routeState.leafletLayers.push(startMarker);
+
+  const endPt = latLngs[latLngs.length - 1];
+  const endIcon = L.divIcon({
+    className: 'custom-route-marker',
+    html: `<div class="leaflet-route-pin end" title="Destination: ${routeState.endLocation.name}"></div>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  });
+  const endMarker = L.marker(endPt, { icon: endIcon }).addTo(mainLeafletMap);
+  endMarker.bindPopup(`<b>End Location</b><br>${routeState.endLocation.name}`);
+  routeState.leafletLayers.push(endMarker);
+
+  riskAssessment.detectedHazards.forEach(hazard => {
+    const evt = (LIVE_EVENTS || EVENTS).find(e => e.id === hazard.id);
+    if (evt && typeof evt.lat === 'number' && typeof evt.lng === 'number') {
+      const hazardCircle = L.circle([evt.lat, evt.lng], {
+        radius: 15000,
+        color: '#E05555',
+        fillColor: '#E05555',
+        fillOpacity: 0.15,
+        weight: 1,
+        dashArray: '4, 4'
+      }).addTo(mainLeafletMap);
+      hazardCircle.bindPopup(`<b>Hazard Alert: ${evt.name || evt.type}</b><br>Distance to route: ${hazard.distanceKm} km`);
+      routeState.leafletLayers.push(hazardCircle);
+    }
+  });
+
+  mainLeafletMap.fitBounds(mainPolyline.getBounds(), { padding: [60, 60] });
+}
+
+function clearRouteFromMap() {
+  if (routeState.leafletLayers && routeState.leafletLayers.length > 0) {
+    routeState.leafletLayers.forEach(l => {
+      if (mainLeafletMap) mainLeafletMap.removeLayer(l);
+    });
+    routeState.leafletLayers = [];
+  }
+}
+
+function populateTurnSteps(feature) {
+  const stepsContainer = document.getElementById('turn-steps-list');
+  if (!stepsContainer) return;
+  stepsContainer.innerHTML = '';
+
+  const legs = feature.properties && feature.properties.legs;
+  if (!legs || legs.length === 0 || !legs[0].steps) {
+    stepsContainer.innerHTML = '<div class="turn-step-item"><span class="turn-step-text">Direct route path without turn maneuvers.</span></div>';
+    return;
+  }
+
+  const steps = legs[0].steps;
+  steps.forEach((step, idx) => {
+    const text = step.instruction ? step.instruction.text : `Proceed on route segment ${idx + 1}`;
+    const distMeters = step.distance || 0;
+    const distStr = distMeters > 1000 ? `${(distMeters / 1000).toFixed(1)} km` : `${distMeters} m`;
+
+    const stepEl = document.createElement('div');
+    stepEl.className = 'turn-step-item';
+    stepEl.innerHTML = `
+      <span class="turn-step-text">${(idx + 1)}. ${text}</span>
+      <span class="turn-step-dist">${distStr}</span>
+    `;
+
+    stepEl.addEventListener('click', () => {
+      if (feature.geometry && feature.geometry.coordinates) {
+        const coords = feature.geometry.coordinates;
+        const fromIdx = step.from_index || 0;
+        if (coords[fromIdx] && mainLeafletMap) {
+          const pt = coords[fromIdx];
+          mainLeafletMap.flyTo([pt[1], pt[0]], 15, { animate: true });
+        }
+      }
+    });
+
+    stepsContainer.appendChild(stepEl);
+  });
+}
+
+async function calculateRoute() {
+  const resultsContainer = document.getElementById('route-results-container');
+  
+  if (!routeState.startLocation) {
+    showRouteStatus('Please select or search a Start Location.', true);
+    return;
+  }
+  if (!routeState.endLocation) {
+    showRouteStatus('Please select or search an End Location.', true);
+    return;
+  }
+
+  showRouteStatus('Calculating optimal route via Geoapify API...');
+  if (resultsContainer) resultsContainer.classList.add('hidden');
+
+  try {
+    const geoJson = await fetchGeoapifyRoute(routeState.startLocation, routeState.endLocation, routeState.mode);
+    
+    if (!geoJson.features || geoJson.features.length === 0) {
+      throw new Error('No valid street route found between selected points.');
+    }
+
+    const feature = geoJson.features[0];
+    const props = feature.properties || {};
+
+    const distMeters = props.distance || 0;
+    const timeSecs = props.time || 0;
+
+    const distKm = (distMeters / 1000).toFixed(1);
+    const timeMins = Math.round(timeSecs / 60);
+    const timeFormatted = timeMins > 60 ? `${Math.floor(timeMins/60)}h ${timeMins%60}m` : `${timeMins} min`;
+
+    let geomCoords = [];
+    if (feature.geometry.type === 'LineString') {
+      geomCoords = feature.geometry.coordinates;
+    } else if (feature.geometry.type === 'MultiLineString') {
+      feature.geometry.coordinates.forEach(cArray => geomCoords.push(...cArray));
+    }
+
+    const riskAssessment = analyzeRouteCalamitiesAndTraffic(geomCoords, parseFloat(distKm), timeMins);
+
+    document.getElementById('route-val-dist').textContent = `${distKm} km`;
+    document.getElementById('route-val-time').textContent = timeFormatted;
+    document.getElementById('route-val-risk').textContent = riskAssessment.riskLevel.toUpperCase();
+    document.getElementById('route-val-traffic').textContent = riskAssessment.trafficIndex;
+
+    const riskCard = document.getElementById('calamity-risk-card');
+    const riskTitle = document.getElementById('risk-card-title');
+    const riskDesc = document.getElementById('risk-card-desc');
+    const riskDetails = document.getElementById('risk-card-details');
+
+    if (riskCard) {
+      riskCard.className = `calamity-risk-card ${riskAssessment.riskLevel}`;
+    }
+    if (riskTitle) riskTitle.textContent = riskAssessment.title;
+    if (riskDesc) riskDesc.textContent = riskAssessment.description;
+    if (riskDetails) {
+      if (riskAssessment.detectedHazards.length > 0) {
+        riskDetails.textContent = `Monitored hazard entities: ${riskAssessment.detectedHazards.map(h => `${h.name} (${h.distanceKm}km)`).join(', ')}`;
+      } else {
+        riskDetails.textContent = 'All clear along active route bounds.';
+      }
+    }
+
+    populateTurnSteps(feature);
+    renderRouteOnMap(geoJson, riskAssessment);
+    routeState.currentRoute = geoJson;
+
+    hideRouteStatus();
+    if (resultsContainer) resultsContainer.classList.remove('hidden');
+
+  } catch (err) {
+    console.error('[Geoapify Route Error]', err);
+    showRouteStatus(`Routing failed: ${err.message}`, true);
+  }
+}
+
+function showRouteStatus(msg, isError = false) {
+  const el = document.getElementById('route-status-msg');
+  if (el) {
+    el.textContent = msg;
+    el.className = `route-status-msg ${isError ? 'error' : ''}`;
+    el.classList.remove('hidden');
+  }
+}
+
+function hideRouteStatus() {
+  const el = document.getElementById('route-status-msg');
+  if (el) el.classList.add('hidden');
+}
+
+function setupRouteAutocomplete(inputId, dropdownId, targetKey) {
+  const input = document.getElementById(inputId);
+  const dropdown = document.getElementById(dropdownId);
+  if (!input || !dropdown) return;
+
+  input.addEventListener('input', (e) => {
+    const val = e.target.value.trim();
+    clearTimeout(routeState.autocompleteTimers[targetKey]);
+
+    if (val.length < 2) {
+      dropdown.classList.add('hidden');
+      dropdown.innerHTML = '';
+      return;
+    }
+
+    routeState.autocompleteTimers[targetKey] = setTimeout(async () => {
+      try {
+        const results = await searchGeoapifyLocationList(val);
+        dropdown.innerHTML = '';
+        if (results && results.length > 0) {
+          results.forEach(item => {
+            const div = document.createElement('div');
+            div.className = 'route-autocomplete-item';
+            div.textContent = item.name;
+            div.addEventListener('click', () => {
+              input.value = item.name;
+              routeState[targetKey] = { name: item.name, lat: item.lat, lng: item.lng };
+              dropdown.classList.add('hidden');
+            });
+            dropdown.appendChild(div);
+          });
+          dropdown.classList.remove('hidden');
+        } else {
+          dropdown.classList.add('hidden');
+        }
+      } catch (err) {
+        console.warn('[Geoapify Autocomplete]', err);
+      }
+    }, 250);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+      dropdown.classList.add('hidden');
+    }
+  });
+}
+
+async function searchGeoapifyLocationList(query) {
+  try {
+    const res = await fetch(`https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(query)}&apiKey=${GEOAPIFY_API_KEY}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.features && data.features.length > 0) {
+        return data.features.map(f => ({
+          name: f.properties.formatted || f.properties.city || query,
+          lat: f.geometry.coordinates[1],
+          lng: f.geometry.coordinates[0]
+        }));
+      }
+    }
+  } catch (e) {
+    console.warn('[Geoapify] Search list error:', e.message);
+  }
+  return [];
+}
+
+function handleMapPickClick(e) {
+  if (!routeState.pickingMode || !e.latlng) return;
+
+  const lat = e.latlng.lat;
+  const lng = e.latlng.lng;
+  const mode = routeState.pickingMode;
+
+  const inputId = mode === 'start' ? 'route-start-input' : 'route-end-input';
+  const targetKey = mode === 'start' ? 'startLocation' : 'endLocation';
+  const input = document.getElementById(inputId);
+
+  showRouteStatus(`Resolving coordinates (${lat.toFixed(4)}, ${lng.toFixed(4)})...`);
+
+  fetchReverseGeocode(lat, lng)
+    .then(addr => {
+      const locName = addr || `Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+      if (input) input.value = locName;
+      routeState[targetKey] = { name: locName, lat, lng };
+      hideRouteStatus();
+    })
+    .catch(() => {
+      const locName = `Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+      if (input) input.value = locName;
+      routeState[targetKey] = { name: locName, lat, lng };
+      hideRouteStatus();
+    })
+    .finally(() => {
+      resetMapPickingMode();
+    });
+}
+
+function initRoutePlanner() {
+  document.getElementById('btn-open-route-planner')?.addEventListener('click', openRoutePlanner);
+  document.getElementById('route-planner-close')?.addEventListener('click', closeRoutePlanner);
+
+  document.getElementById('btn-pick-start')?.addEventListener('click', () => {
+    routeState.pickingMode = 'start';
+    document.getElementById('btn-pick-start')?.classList.add('active');
+    document.getElementById('btn-pick-end')?.classList.remove('active');
+    if (activeMainView === 'globe') setMainViewMode('streets');
+    if (mainLeafletMap && mainLeafletMap._container) {
+      mainLeafletMap._container.style.cursor = 'crosshair';
+    }
+    showRouteStatus('Click anywhere on the map to set Start Location.');
+  });
+
+  document.getElementById('btn-pick-end')?.addEventListener('click', () => {
+    routeState.pickingMode = 'end';
+    document.getElementById('btn-pick-end')?.classList.add('active');
+    document.getElementById('btn-pick-start')?.classList.remove('active');
+    if (activeMainView === 'globe') setMainViewMode('streets');
+    if (mainLeafletMap && mainLeafletMap._container) {
+      mainLeafletMap._container.style.cursor = 'crosshair';
+    }
+    showRouteStatus('Click anywhere on the map to set End Location.');
+  });
+
+  document.getElementById('btn-my-location')?.addEventListener('click', () => {
+    if (navigator.geolocation) {
+      showRouteStatus('Retrieving current device location...');
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const addr = await fetchReverseGeocode(lat, lng);
+        const locName = addr || `My Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+        
+        const input = document.getElementById('route-start-input');
+        if (input) input.value = locName;
+        routeState.startLocation = { name: locName, lat, lng };
+        hideRouteStatus();
+
+        if (mainLeafletMap) {
+          if (activeMainView === 'globe') setMainViewMode('streets');
+          mainLeafletMap.flyTo([lat, lng], 14, { animate: true });
+        }
+      }, (err) => {
+        showRouteStatus(`Geolocation denied or unavailable: ${err.message}`, true);
+      });
+    } else {
+      showRouteStatus('Browser geolocation is not supported.', true);
+    }
+  });
+
+  document.getElementById('btn-swap-waypoints')?.addEventListener('click', () => {
+    const tempLoc = routeState.startLocation;
+    routeState.startLocation = routeState.endLocation;
+    routeState.endLocation = tempLoc;
+
+    const startInput = document.getElementById('route-start-input');
+    const endInput = document.getElementById('route-end-input');
+
+    if (startInput && endInput) {
+      const tempVal = startInput.value;
+      startInput.value = endInput.value;
+      endInput.value = tempVal;
+    }
+  });
+
+  document.querySelectorAll('.route-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.route-mode-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      routeState.mode = btn.dataset.mode;
+    });
+  });
+
+  document.getElementById('btn-calculate-route')?.addEventListener('click', calculateRoute);
+
+  document.getElementById('btn-clear-route')?.addEventListener('click', () => {
+    clearRouteFromMap();
+    document.getElementById('route-results-container')?.classList.add('hidden');
+    hideRouteStatus();
+  });
+
+  setupRouteAutocomplete('route-start-input', 'route-start-results', 'startLocation');
+  setupRouteAutocomplete('route-end-input', 'route-end-results', 'endLocation');
+}
+
 // ─── LEAFLET REALISTIC & INTERACTIVE STREET INTEL CONTROLS ─────────────────
 let leafletStreetMap = null;
 let leafletTargetMarker = null;
@@ -2128,4 +2679,7 @@ document.addEventListener('DOMContentLoaded', () => {
       setMainViewMode(btn.dataset.mode);
     });
   });
+
+  // Initialize Safe Route & Calamity Navigator
+  initRoutePlanner();
 });
