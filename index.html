@@ -16,6 +16,13 @@
   ════════════════════════════════════════════════════════════════════ -->
   <div id="globe-container"></div>
 
+  <!-- ═══════════════════════════════════════════════════════════════════
+       PRIMARY STREET VIEW MAP CONTAINER (Navigable 2D/3D Map & Satellite View)
+  ════════════════════════════════════════════════════════════════════ -->
+  <div id="street-view-container" class="street-view-main hidden">
+    <div id="main-leaflet-map" class="leaflet-map-container"></div>
+  </div>
+
   <!-- Hover tooltip (entity name on hover) -->
   <div id="entity-tooltip" class="entity-tooltip hidden">
     <div class="tooltip-callsign" id="tt-callsign"></div>
@@ -37,6 +44,24 @@
     <div class="hud-wordmark">
       <div class="wordmark-main">LOKṢA</div>
       <div class="wordmark-sub">Living Atlas</div>
+    </div>
+
+    <!-- Top-Center: View Mode Switcher (Globe vs Satellite vs Street Map vs Dark Map) -->
+    <div class="hud-top-center">
+      <div class="view-mode-selector" id="view-mode-selector">
+        <button class="view-mode-btn active" data-mode="globe" title="3D Globe View Mode">
+          <span>🌍</span> 3D Globe
+        </button>
+        <button class="view-mode-btn" data-mode="satellite" title="High-Resolution Real Satellite Street Mode">
+          <span>🛰️</span> Satellite
+        </button>
+        <button class="view-mode-btn" data-mode="streets" title="Vibrant Street Map Mode">
+          <span>🗺️</span> Street Map
+        </button>
+        <button class="view-mode-btn" data-mode="dark" title="Tactical Dark Mode">
+          <span>🌙</span> Tactical Dark
+        </button>
+      </div>
     </div>
 
     <!-- Top-right: entity count + atlas button -->
@@ -521,8 +546,9 @@
   <script src="https://unpkg.com/globe.gl@2.27.0/dist/globe.gl.min.js"></script>
   <!-- Leaflet interactive map library -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- App (ES module) -->
-  <script type="module" src="app.js"></script>
+  <!-- Data & Application scripts -->
+  <script src="data.js"></script>
+  <script src="app.js"></script>
 
 </body>
 </html>

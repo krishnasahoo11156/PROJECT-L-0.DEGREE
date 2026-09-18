@@ -1,7 +1,7 @@
 // ─── LIVING ATLAS — MOCK DATA ────────────────────────────────────────────────
 // Realistic sample data. All callsigns, routes, and coordinates are plausible.
 
-export const AIRCRAFT = [
+var AIRCRAFT = [
   {
     id: 'SAS4872', type: 'aircraft',
     callsign: 'SAS4872', airline: 'Scandinavian Airlines',
@@ -137,7 +137,7 @@ export const AIRCRAFT = [
   }
 ];
 
-export const EVENTS = [
+var EVENTS = [
   {
     id: 'EVT001', type: 'wildfire',
     name: 'Northern California Wildfire Complex',
@@ -175,7 +175,7 @@ export const EVENTS = [
   }
 ];
 
-export const DISCOVERIES = [
+var DISCOVERIES = [
   {
     id: '042', title: 'Unusual Flight Path',
     category: 'AVIATION', categoryIcon: '✈', status: 'OPEN',
@@ -253,7 +253,7 @@ export const DISCOVERIES = [
   }
 ];
 
-export const EXPLORER_PROFILE = {
+var EXPLORER_PROFILE = {
   name: 'LOKṢA',
   totalDiscoveries: 42,
   byCategory: { aviation: 18, maritime: 9, natural: 7, space: 8 },
@@ -263,7 +263,7 @@ export const EXPLORER_PROFILE = {
 };
 
 // Helper: interpolate lat/lng position along trajectory at progress [0..1]
-export function getPositionAlongTrajectory(trajectory, progress) {
+function getPositionAlongTrajectory(trajectory, progress) {
   if (!trajectory || trajectory.length < 2) return [0, 0];
   const n = trajectory.length - 1;
   const t = Math.max(0, Math.min(1, progress)) * n;
@@ -271,4 +271,12 @@ export function getPositionAlongTrajectory(trajectory, progress) {
   const f = t - i;
   const a = trajectory[i], b = trajectory[i + 1];
   return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+}
+
+if (typeof window !== 'undefined') {
+  window.AIRCRAFT = AIRCRAFT;
+  window.EVENTS = EVENTS;
+  window.DISCOVERIES = DISCOVERIES;
+  window.EXPLORER_PROFILE = EXPLORER_PROFILE;
+  window.getPositionAlongTrajectory = getPositionAlongTrajectory;
 }

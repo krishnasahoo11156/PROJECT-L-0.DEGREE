@@ -3,8 +3,6 @@
 // The globe is always running. Everything else is an overlay.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { AIRCRAFT, EVENTS, DISCOVERIES, EXPLORER_PROFILE, getPositionAlongTrajectory } from './data.js';
-
 // ─── LIVE DATA STATE ──────────────────────────────────────────────────────────
 let LIVE_AIRCRAFT = null;   // null = not yet loaded; populated by loadLiveData()
 let LIVE_EVENTS   = null;
@@ -44,6 +42,12 @@ let timeOffset   = 0;           // hours back from now (0 = now, -6 = 6hrs ago)
 let globe        = null;
 let currentDiscovery = null;
 
+let activeMainView = 'globe';   // globe | satellite | streets | dark
+let mainLeafletMap = null;
+let mainLeafletTileLayers = {};
+let mainLeafletMarkers = [];
+let mainStreetInspectMarker = null;
+
 const STATES = ['world','inspecting','following','investigating','atlas','journal'];
 
 function setState(newState) {
@@ -51,15 +55,18 @@ function setState(newState) {
   state = newState;
   document.body.className = `state-${newState}`;
 
-  // Globe resize on investigation
+  // Globe & Street View resize on investigation
+  if (newState === 'investigating') {
+    if (globe) setTimeout(() => { globe.width(Math.round(window.innerWidth * 0.44)); }, 50);
+    if (mainLeafletMap) setTimeout(() => { $('street-view-container').style.width = '44vw'; mainLeafletMap.invalidateSize(); }, 50);
+  } else if (prev === 'investigating') {
+    if (globe) setTimeout(() => { globe.width(window.innerWidth); }, 50);
+    if (mainLeafletMap) setTimeout(() => { $('street-view-container').style.width = '100vw'; mainLeafletMap.invalidateSize(); }, 50);
+  }
+
   if (globe) {
-    if (newState === 'investigating') {
-      setTimeout(() => { globe.width(Math.round(window.innerWidth * 0.44)); }, 50);
-    } else if (prev === 'investigating') {
-      setTimeout(() => { globe.width(window.innerWidth); }, 50);
-    }
     // Auto-rotate only in world state
-    globe.controls().autoRotate = (newState === 'world');
+    globe.controls().autoRotate = (newState === 'world' && activeMainView === 'globe');
   }
 
   // Panel open/close
@@ -190,6 +197,167 @@ function initGlobe() {
   updateGlobeEntities();
   startAircraftMovement();
   setupGoogleEarthControls();
+}
+
+// ─── MAIN STREET VIEW & MAP NAVIGATION SETUP ─────────────────────────────────
+function initMainLeafletMap() {
+  const container = $('main-leaflet-map');
+  if (!container || mainLeafletMap) return;
+
+  mainLeafletMap = L.map(container, {
+    center: [30, 0],
+    zoom: 3,
+    zoomControl: false,
+    attributionControl: false
+  });
+
+  const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19, subdomains: ['a', 'b', 'c']
+  });
+
+  const streetLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19
+  });
+
+  const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19
+  });
+
+  mainLeafletTileLayers = {
+    satellite: satelliteLayer,
+    streets: streetLayer,
+    dark: darkLayer
+  };
+
+  // Add satellite layer by default
+  mainLeafletTileLayers.satellite.addTo(mainLeafletMap);
+
+  // Click anywhere on main street map to inspect location & street address
+  mainLeafletMap.on('click', async (e) => {
+    const { lat, lng } = e.latlng;
+    if (mainStreetInspectMarker) mainLeafletMap.removeLayer(mainStreetInspectMarker);
+
+    mainStreetInspectMarker = L.circleMarker([lat, lng], {
+      radius: 7,
+      color: '#3ecfaa',
+      fillColor: '#3ecfaa',
+      fillOpacity: 0.85
+    }).addTo(mainLeafletMap);
+
+    mainStreetInspectMarker.bindPopup(`
+      <div class="leaflet-intel-popup">
+        <div class="popup-tag" style="color: var(--success);">INSPECTED POINT</div>
+        <div class="popup-coords">${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E</div>
+        <div class="popup-desc">Resolving street address…</div>
+      </div>
+    `, { offset: [0, -5] }).openPopup();
+
+    const addr = await fetchReverseGeocode(lat, lng);
+    if (mainStreetInspectMarker) {
+      mainStreetInspectMarker.getPopup().setContent(`
+        <div class="leaflet-intel-popup">
+          <div class="popup-tag" style="color: var(--success);">INSPECTED POINT</div>
+          <div class="popup-coords">${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E</div>
+          <div class="popup-desc">${addr || 'Local Geographic Location'}</div>
+        </div>
+      `);
+    }
+  });
+
+  // Telemetry updates when moving main street map
+  mainLeafletMap.on('move', updateHUDTelemetry);
+  mainLeafletMap.on('zoomend', updateHUDTelemetry);
+
+  updateMainStreetEntities();
+}
+
+function setMainViewMode(mode) {
+  activeMainView = mode;
+  const globeContainer = $('globe-container');
+  const streetContainer = $('street-view-container');
+
+  document.querySelectorAll('.view-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+
+  if (mode === 'globe') {
+    globeContainer.classList.remove('hidden');
+    streetContainer.classList.add('hidden');
+    if (globe) {
+      globe.controls().autoRotate = (state === 'world');
+    }
+  } else {
+    globeContainer.classList.add('hidden');
+    streetContainer.classList.remove('hidden');
+    if (!mainLeafletMap) {
+      initMainLeafletMap();
+    }
+    // Switch active tile layer
+    Object.values(mainLeafletTileLayers).forEach(layer => {
+      if (mainLeafletMap.hasLayer(layer)) mainLeafletMap.removeLayer(layer);
+    });
+    if (mainLeafletTileLayers[mode]) {
+      mainLeafletTileLayers[mode].addTo(mainLeafletMap);
+    }
+    // Sync Leaflet center to globe POV center
+    if (globe) {
+      const pov = globe.pointOfView();
+      if (pov && typeof pov.lat === 'number') {
+        const targetZoom = pov.altitude < 0.3 ? 14 : pov.altitude < 0.8 ? 8 : pov.altitude < 1.5 ? 5 : 3;
+        mainLeafletMap.setView([pov.lat, pov.lng], targetZoom);
+      }
+    }
+    setTimeout(() => {
+      if (mainLeafletMap) mainLeafletMap.invalidateSize();
+    }, 100);
+    updateMainStreetEntities();
+  }
+  updateHUDTelemetry();
+}
+
+function updateMainStreetEntities() {
+  if (!mainLeafletMap) return;
+
+  // Clear previous markers
+  mainLeafletMarkers.forEach(m => mainLeafletMap.removeLayer(m));
+  mainLeafletMarkers = [];
+
+  const entities = getAllEntities();
+  entities.forEach(entity => {
+    if (entity.lat == null || entity.lng == null) return;
+
+    let customIcon;
+    if (entity.isCuriosity) {
+      customIcon = L.divIcon({
+        className: 'leaflet-entity-marker',
+        html: `<div class="curiosity-marker-beacon"><div class="curiosity-marker-core"></div><div class="curiosity-marker-ring"></div></div>`,
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+      });
+    } else {
+      customIcon = L.divIcon({
+        className: 'leaflet-entity-marker',
+        html: `<div class="aircraft-marker-dot"></div>`,
+        iconSize: [14, 14],
+        iconAnchor: [7, 7]
+      });
+    }
+
+    const marker = L.marker([entity.lat, entity.lng], { icon: customIcon }).addTo(mainLeafletMap);
+    marker.bindTooltip(entity.callsign || entity.name || 'Entity', {
+      direction: 'top',
+      offset: [0, -8]
+    });
+
+    marker.on('click', () => {
+      selectedEntity = entity;
+      openInspection(entity);
+      setState('inspecting');
+      mainLeafletMap.flyTo([entity.lat, entity.lng], 14, { duration: 1.2 });
+    });
+
+    mainLeafletMarkers.push(marker);
+  });
 }
 
 // ─── GLOBE ENTITY DATA ────────────────────────────────────────────────────────
@@ -329,33 +497,33 @@ function updateGlobeEntities() {
   const curiosityCount = curiosities.length;
   $('entity-count-badge').querySelector('.entity-count-number').textContent = entities.length;
   $('curiosity-count').textContent = `${curiosityCount} curiosit${curiosityCount === 1 ? 'y' : 'ies'}`;
+
+  // Update main street map markers as well
+  updateMainStreetEntities();
 }
 
 // ─── GOOGLE EARTH NAVIGATION & TELEMETRY CONTROLS ─────────────────────────────
-function setupGoogleEarthControls() {
-  if (!globe) return;
+function updateHUDTelemetry() {
+  const formatDMS = (val, isLat) => {
+    const dir = isLat ? (val >= 0 ? 'N' : 'S') : (val >= 0 ? 'E' : 'W');
+    const abs = Math.abs(val);
+    const deg = Math.floor(abs);
+    const min = Math.floor((abs - deg) * 60);
+    const sec = Math.floor(((abs - deg) * 60 - min) * 60);
+    return `${deg}°${String(min).padStart(2,'0')}'${String(sec).padStart(2,'0')}"${dir}`;
+  };
 
-  const updateHUD = () => {
+  if (activeMainView === 'globe') {
+    if (!globe) return;
     const pov = globe.pointOfView();
     if (!pov) return;
 
-    // 1. Camera altitude formatting (km or meters)
     const altKm = Math.round(pov.altitude * 6371);
     const altStr = altKm > 10 ? `Camera: ${altKm.toLocaleString()} km` : `Camera: ${Math.round(altKm * 1000).toLocaleString()} m`;
     if ($('ge-camera-alt')) $('ge-camera-alt').textContent = altStr;
 
-    // 2. Latitude & Longitude formatting (DMS)
-    const formatDMS = (val, isLat) => {
-      const dir = isLat ? (val >= 0 ? 'N' : 'S') : (val >= 0 ? 'E' : 'W');
-      const abs = Math.abs(val);
-      const deg = Math.floor(abs);
-      const min = Math.floor((abs - deg) * 60);
-      const sec = Math.floor(((abs - deg) * 60 - min) * 60);
-      return `${deg}°${String(min).padStart(2,'0')}'${String(sec).padStart(2,'0')}"${dir}`;
-    };
     if ($('ge-camera-coords')) $('ge-camera-coords').textContent = `${formatDMS(pov.lat, true)} ${formatDMS(pov.lng, false)}`;
 
-    // 3. Dynamic scale bar
     let scaleTxt = '2,000 km';
     let lineW = 60;
     if (pov.altitude < 0.25) { scaleTxt = '500 m'; lineW = 35; }
@@ -364,38 +532,64 @@ function setupGoogleEarthControls() {
     else if (pov.altitude < 1.8) { scaleTxt = '1,000 km'; lineW = 55; }
     if ($('ge-scale-label')) $('ge-scale-label').textContent = scaleTxt;
     if ($('ge-scale-line')) $('ge-scale-line').style.width = lineW + 'px';
+  } else if (mainLeafletMap) {
+    const center = mainLeafletMap.getCenter();
+    const zoom = mainLeafletMap.getZoom();
+    const estAltKm = Math.round(40000 / Math.pow(2, zoom));
+    const altStr = estAltKm > 1 ? `Camera: ${estAltKm.toLocaleString()} km` : `Camera: ${Math.round(estAltKm * 1000).toLocaleString()} m`;
+    if ($('ge-camera-alt')) $('ge-camera-alt').textContent = altStr;
 
-    // 4. Update Level of Detail Labels
-    updateGlobeEntities();
-  };
+    if ($('ge-camera-coords')) $('ge-camera-coords').textContent = `${formatDMS(center.lat, true)} ${formatDMS(center.lng, false)}`;
 
-  globe.controls().addEventListener('change', updateHUD);
-  updateHUD();
+    let scaleTxt = '500 km';
+    let lineW = 50;
+    if (zoom >= 16) { scaleTxt = '100 m'; lineW = 30; }
+    else if (zoom >= 13) { scaleTxt = '1 km'; lineW = 40; }
+    else if (zoom >= 9) { scaleTxt = '20 km'; lineW = 45; }
+    else if (zoom >= 6) { scaleTxt = '200 km'; lineW = 50; }
+    if ($('ge-scale-label')) $('ge-scale-label').textContent = scaleTxt;
+    if ($('ge-scale-line')) $('ge-scale-line').style.width = lineW + 'px';
+  }
+}
+
+function setupGoogleEarthControls() {
+  if (!globe) return;
+
+  globe.controls().addEventListener('change', updateHUDTelemetry);
+  updateHUDTelemetry();
 
   // ─── CAMERA PAN & ZOOM HELPERS ──────────────────────────────────────────────
   const panCamera = (deltaLatDir, deltaLngDir) => {
-    const pov = globe.pointOfView();
-    // Altitude-scaled step size (larger steps at high altitude, finer at low altitude)
-    const step = Math.max(0.15, pov.altitude * 6);
-    let targetLat = pov.lat + deltaLatDir * step;
-    let targetLng = pov.lng + deltaLngDir * step;
+    if (activeMainView === 'globe') {
+      const pov = globe.pointOfView();
+      const step = Math.max(0.15, pov.altitude * 6);
+      let targetLat = pov.lat + deltaLatDir * step;
+      let targetLng = pov.lng + deltaLngDir * step;
 
-    // Clamp latitude to avoid pole inversion issues
-    targetLat = Math.max(-85, Math.min(85, targetLat));
+      targetLat = Math.max(-85, Math.min(85, targetLat));
+      if (targetLng > 180) targetLng -= 360;
+      if (targetLng < -180) targetLng += 360;
 
-    // Normalize longitude between -180 and 180
-    if (targetLng > 180) targetLng -= 360;
-    if (targetLng < -180) targetLng += 360;
-
-    globe.pointOfView({ lat: targetLat, lng: targetLng, altitude: pov.altitude }, 120);
+      globe.pointOfView({ lat: targetLat, lng: targetLng, altitude: pov.altitude }, 120);
+    } else if (mainLeafletMap) {
+      const panOffset = 120;
+      mainLeafletMap.panBy([-deltaLngDir * panOffset, -deltaLatDir * panOffset]);
+      updateHUDTelemetry();
+    }
   };
 
   const zoomCamera = (factor) => {
-    const pov = globe.pointOfView();
-    const newAlt = factor < 1 
-      ? Math.max(0.08, pov.altitude * factor) 
-      : Math.min(4.5, pov.altitude * factor);
-    globe.pointOfView({ altitude: newAlt }, 200);
+    if (activeMainView === 'globe') {
+      const pov = globe.pointOfView();
+      const newAlt = factor < 1 
+        ? Math.max(0.08, pov.altitude * factor) 
+        : Math.min(4.5, pov.altitude * factor);
+      globe.pointOfView({ altitude: newAlt }, 200);
+    } else if (mainLeafletMap) {
+      if (factor < 1) mainLeafletMap.zoomIn();
+      else mainLeafletMap.zoomOut();
+      updateHUDTelemetry();
+    }
   };
 
   // Continuous Hold / Press Helper for Buttons
@@ -587,6 +781,13 @@ function hideEntityTooltip() {
 // ─── INSPECTION PANEL ─────────────────────────────────────────────────────────
 function openInspection(entity) {
   hideEntityTooltip();
+  if (globe && entity.lat != null && entity.lng != null) {
+    globe.pointOfView({ lat: entity.lat, lng: entity.lng, altitude: 1.4 }, 800);
+  }
+  if (mainLeafletMap && entity.lat != null && entity.lng != null) {
+    mainLeafletMap.flyTo([entity.lat, entity.lng], 14, { duration: 1.2 });
+  }
+
   if (entity.type === 'aircraft') {
     $('insp-entity-type').textContent = 'AIRCRAFT';
     $('insp-callsign').textContent = entity.callsign;
@@ -1006,7 +1207,8 @@ function doSurpriseMe() {
   // Spin to a random intermediate location
   const midLat = (Math.random() - 0.5) * 80;
   const midLng = (Math.random() - 0.5) * 360;
-  globe.pointOfView({ lat: midLat, lng: midLng, altitude: 3.5 }, 600);
+  if (globe) globe.pointOfView({ lat: midLat, lng: midLng, altitude: 3.5 }, 600);
+  if (mainLeafletMap) mainLeafletMap.flyTo([midLat, midLng], 4, { duration: 0.6 });
 
   setTimeout(() => {
     // Pick a curiosity entity to travel to
@@ -1014,7 +1216,8 @@ function doSurpriseMe() {
     const target = curiosities.length > 0 ? curiosities[Math.floor(Math.random() * curiosities.length)] : getAllEntities()[0];
     $('surprise-text').textContent = 'Found something…';
 
-    globe.pointOfView({ lat: target.lat, lng: target.lng, altitude: 1.6 }, 2200);
+    if (globe) globe.pointOfView({ lat: target.lat, lng: target.lng, altitude: 1.6 }, 2200);
+    if (mainLeafletMap) mainLeafletMap.flyTo([target.lat, target.lng], 14, { duration: 2.2 });
 
     setTimeout(() => {
       overlay.classList.add('arrived');
@@ -1337,7 +1540,8 @@ $('search-input').addEventListener('keydown', async e => {
   );
   if (match) {
     selectedEntity = match;
-    globe.pointOfView({ lat: match.lat, lng: match.lng, altitude: 1.4 }, 1200);
+    if (globe) globe.pointOfView({ lat: match.lat, lng: match.lng, altitude: 1.4 }, 1200);
+    if (mainLeafletMap) mainLeafletMap.flyTo([match.lat, match.lng], 14, { duration: 1.2 });
     setTimeout(() => { openInspection(match); setState('inspecting'); }, 900);
     e.target.value = '';
     e.target.blur();
@@ -1348,7 +1552,8 @@ $('search-input').addEventListener('keydown', async e => {
   setLiveStatus('📍 Geocoding location…');
   const geoResult = await searchGeoapifyLocation(q);
   if (geoResult) {
-    globe.pointOfView({ lat: geoResult.lat, lng: geoResult.lng, altitude: 1.1 }, 1600);
+    if (globe) globe.pointOfView({ lat: geoResult.lat, lng: geoResult.lng, altitude: 1.1 }, 1600);
+    if (mainLeafletMap) mainLeafletMap.flyTo([geoResult.lat, geoResult.lng], 14, { duration: 1.2 });
     setLiveStatus(`📍 Arrived at ${geoResult.name}`, 'live');
     setTimeout(clearLiveStatus, 4000);
     e.target.value = '';
@@ -1916,4 +2121,11 @@ document.addEventListener('DOMContentLoaded', () => {
   initGlobe();
   loadLiveData();
   setInterval(loadLiveData, 15000); // auto-refresh every 15 s
+
+  // Bind top HUD view mode buttons
+  document.querySelectorAll('.view-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setMainViewMode(btn.dataset.mode);
+    });
+  });
 });
